@@ -12,6 +12,10 @@
 // Each accepted status is also logged to a file in server/logs/, or ECHO_LOG_DIR.
 // With ECHO_BOX_TOKEN set in server/.env, POST /status needs it in the
 // X-Echo-Token header or gets 401 before its body is read (auth.js).
+// With ElevenLabs set in server/.env, the Responder's calls (never the
+// ladder's) start voice conversations, and with ECHO_VOICE_SECRET too, a
+// second server on ECHO_VOICE_PORT (127.0.0.1 only) takes the voice agent's
+// tool webhooks (voice.js). The routes above are never served there.
 
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
@@ -22,6 +26,10 @@ import {
 import { createLadder } from './ladder.js';
 import { createResponder } from './responder.js';
 import { geminiModel, readGeminiConfig, responderStartupMessage } from './gemini.js';
+import { readElevenLabsConfig } from './elevenlabs.js';
+import {
+  createVoiceCaller, createVoiceServer, readVoiceSecret, VOICE_HOST, voicePort, voiceStartup,
+} from './voice.js';
 import { createActionLog } from './actions.js';
 import { createHistory, createStatusLog, logDir, logLine } from './history.js';
 import { isDashboardPath, serveDashboard } from './dashboard.js';
@@ -147,15 +155,23 @@ export function attachLadder(tracker, {
 
 // Feeds every new status from `tracker` into the Responder as its own
 // listener, never through the ladder, so it can't hold up or change a ladder
-// step. Its calls go through the same createCaller and ECHO_CALLS gate.
+// step. Its calls go through the same createCaller and ECHO_CALLS gate,
+// wrapped by createVoiceCaller: with `elevenLabs` configured (and live) they
+// start voice calls, falling back to the Twilio spoken alert. `startVoice`
+// replaces the ElevenLabs request (tests). `connectVoice` gets the
+// Responder's { requestCall, inIncident } for the voice tools.
 // Without a `model` it is off: no listener, returns null.
 export function attachResponder(tracker, {
-  config, model, dial, log, logError, actions, timers, now,
+  config, model, dial, log, logError, actions, timers, now, elevenLabs, startVoice, connectVoice,
 } = {}) {
   if (!model) return null;
-  const call = createCaller({ config, dial, log, logError });
+  const call = createVoiceCaller({
+    live: config.live, elevenLabs, start: startVoice, say: createCaller({ config, dial, log, logError }),
+    names: config.contacts.map((c) => c.name), timers, log, logError,
+  });
   const responder = createResponder({
     contacts: config.contacts, call, actions, getStatus: () => tracker.snapshot(), model, timers, now, log, logError,
+    connectVoice,
   });
   tracker.onStatus(responder.onStatus);
   return responder;
@@ -169,7 +185,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const actions = createActionLog();
   attachLadder(tracker, { config, actions });
   const gemini = readGeminiConfig();
-  attachResponder(tracker, { config, actions, model: gemini.apiKey ? geminiModel(gemini) : null });
+  const elevenLabs = readElevenLabsConfig();
+  let voiceLink = null; // { requestCall, inIncident }, set when the Responder is on
+  const responder = attachResponder(tracker, {
+    config, actions, model: gemini.apiKey ? geminiModel(gemini) : null, elevenLabs,
+    connectVoice: (link) => { voiceLink = link; },
+  });
+  const voiceSecret = readVoiceSecret();
+  const voicePortSetting = voicePort(process.env, port);
+  const voice = voiceStartup({
+    elevenLabs, secret: voiceSecret, responderOn: responder !== null, port: voicePortSetting,
+  });
   const statusLog = createStatusLog({ dir: logDir() });
   const boxToken = readBoxToken();
   createServer({ tracker, statusLog, actions, boxToken }).listen(port, () => {
@@ -182,5 +208,20 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const auth = boxTokenStartupMessage(boxToken);
     (auth.level === 'warn' ? console.error : console.log)(auth.text);
     console.log(responderStartupMessage(gemini));
+    for (const { level, text } of voice.lines) (level === 'info' ? console.log : console.error)(text);
+    if (!voice.serve) return;
+    const voicePortNumber = voicePortSetting.port;
+    const voiceServer = createVoiceServer({
+      secret: voiceSecret, names: config.contacts.map((c) => c.name), ...voiceLink,
+      getStatus: () => tracker.snapshot(), actions,
+    });
+    // A voice-port problem never stops the main server or the ladder.
+    voiceServer.on('error', (err) => {
+      console.error(`ERROR: voice tools are OFF: could not listen on ${VOICE_HOST}:${voicePortNumber} (${err.code ?? err.message})`);
+    });
+    voiceServer.listen(voicePortNumber, VOICE_HOST, () => {
+      console.log(`voice: tool webhooks on ${VOICE_HOST}:${voicePortNumber} only; tunnel only this port `
+        + `(ngrok http ${VOICE_HOST}:${voicePortNumber}), never ${port}`);
+    });
   });
 }

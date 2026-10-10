@@ -21,6 +21,9 @@
 // MAX_CALLS_PER_CONTACT_PER_WINDOW agent calls per contact in any
 // REQUEST_WINDOW_MS. Turns skipped by the window cap are logged once per window.
 //
+// The live voice agent on a Responder call (voice.js, ticket #19) can ask for
+// a call through requestCall: same caps and caller, during an incident only.
+//
 // Model text is data, never trusted: a contact, message, or note with a line
 // break or other control character is rejected, as is a message or note with
 // any digit (the car's numbers come only from the box, via emergencyMessage).
@@ -122,6 +125,16 @@ const quote = (v) => asData(String(v).slice(0, 40));
 const CONTROL = /[\u0000-\u001f\u007f\u2028\u2029]/;
 const DIGIT = /\p{N}/u;
 
+// Why model text for argument `key` is refused, or null if it is fine. A
+// contact may hold digits here; it must then match a listed name exactly.
+export function textError(key, value) {
+  if (typeof value !== 'string') return `${key} is not text`;
+  if (value.length > MAX_TEXT_CHARS) return `${key} is over ${MAX_TEXT_CHARS} characters`;
+  if (CONTROL.test(value)) return `${key} has a line break or control character`;
+  if (key !== 'contact' && DIGIT.test(value)) return `${key} contains a digit`;
+  return null;
+}
+
 // Returns { name, args } for a valid tool call, or { error } saying why not.
 export function checkToolCall(reply, names) {
   if (!isObject(reply) || typeof reply.name !== 'string') return { error: 'no tool call' };
@@ -135,10 +148,8 @@ export function checkToolCall(reply, names) {
     return { error: `${name}: needs exactly (${expected.join(', ')})` };
   }
   for (const k of keys) {
-    if (typeof args[k] !== 'string') return { error: `${name}: ${k} is not text` };
-    if (args[k].length > MAX_TEXT_CHARS) return { error: `${name}: ${k} is over ${MAX_TEXT_CHARS} characters` };
-    if (CONTROL.test(args[k])) return { error: `${name}: ${k} has a line break or control character` };
-    if (k !== 'contact' && DIGIT.test(args[k])) return { error: `${name}: ${k} contains a digit` };
+    const error = textError(k, args[k]);
+    if (error) return { error: `${name}: ${error}` };
   }
   if ('contact' in args && !names.includes(args.contact)) {
     return { error: `${name}: unknown contact ${quote(args.contact)}` };
@@ -155,9 +166,12 @@ export function agentMessage(status, extra) {
 // `model({ system, prompt, tools, signal })` resolves to { name, args } (or
 // anything else, which is rejected). `call` comes from createCaller (calls.js).
 // `getStatus` returns the tracker's snapshot. Returns { onStatus } only.
+// `connectVoice`, optional, is handed { requestCall, inIncident } for the
+// voice agent's webhook tools (voice.js): requestCall below, and whether an
+// incident is open (the tools work only then).
 export function createResponder({
   contacts, call, actions, getStatus, model, timers = realTimers, now = Date.now,
-  log = console.log, logError = console.error,
+  log = console.log, logError = console.error, connectVoice,
 }) {
   const names = contacts.map((c) => c.name);
   let incident = null;
@@ -233,31 +247,51 @@ export function createResponder({
       log(`responder: would message ${contact.name} (Telegram not wired yet, #24): "${message}"`);
       return;
     }
+    if (!takeCallSlot(current, contact, `turn ${turn}: place_call`)) return;
+    await placeCall({
+      contact, message, status, reason: `emergency, agent turn ${turn}`,
+      said: `turn ${turn}: ${facts}; message: "${args.message.trim()}"`,
+    });
+  }
+
+  // The caps every agent call goes through, from the model or the voice
+  // agent. Counts the call and returns true, or records why not and returns
+  // false. `label` starts the rejected entry.
+  function takeCallSlot(current, contact, label) {
     const made = current.calls.get(contact.name) ?? 0;
     if (made >= MAX_CALLS_PER_CONTACT) {
       record('rejected', contact.name,
-        `turn ${turn}: place_call: already called ${made} times this incident (cap ${MAX_CALLS_PER_CONTACT}); nothing done`);
-      return;
+        `${label}: already called ${made} times this incident (cap ${MAX_CALLS_PER_CONTACT}); nothing done`);
+      return false;
     }
     const recent = callTimes.get(contact.name);
     if (inWindow(recent) >= MAX_CALLS_PER_CONTACT_PER_WINDOW) {
-      record('rejected', contact.name, `turn ${turn}: place_call: already called ${recent.length} times in the last `
+      record('rejected', contact.name, `${label}: already called ${recent.length} times in the last `
         + `${REQUEST_WINDOW_MS / 60_000} min (cap ${MAX_CALLS_PER_CONTACT_PER_WINDOW}); nothing done`);
-      return;
+      return false;
     }
     current.calls.set(contact.name, made + 1);
     recent.push(now());
+    return true;
+  }
+
+  // Places one agent call and records its outcome; `said` starts the entry.
+  // `status` lets a voice caller (voice.js) open with the same box values.
+  async function placeCall({ contact, message, status, reason, said }) {
     let result = null;
     try {
-      result = await call({ contact, message, reason: `emergency, agent turn ${turn}` });
+      result = await call({ contact, message, reason, status });
     } catch { /* createCaller never throws; count it as failed if another one does */ }
-    const said = `turn ${turn}: ${facts}; message: "${args.message.trim()}"`;
+    // Set only by a voice caller: how the call went out.
+    let how = '';
+    if (result?.voice) how = '; as an ElevenLabs voice call';
+    else if (result?.fallback) how = `; ElevenLabs voice call not placed (${result.fallback}), so the Twilio spoken alert instead`;
     if (result?.ok) {
       const notLive = result.dialed ? '' : '; not live: ECHO_CALLS is not "live", so the call was only logged, not dialed';
-      record('call', contact.name, `${said}${notLive}`);
+      record('call', contact.name, `${said}${notLive}${how}`);
     } else {
       // Never the error text: Twilio's can quote the number.
-      record('call_failed', contact.name, `${said}; the call failed (see server log), not retried by the agent`);
+      record('call_failed', contact.name, `${said}${how}; the call failed (see server log), not retried by the agent`);
     }
   }
 
@@ -276,6 +310,34 @@ export function createResponder({
       current.inFlight = false;
     }
   }
+
+  // A call asked for by the live voice agent (voice.js), by contact name:
+  // same caps and caller as place_call, the alert built from the box's
+  // values, entries starting "agent: voice: request_call". Only during an
+  // incident. Returns { ok: true, done } once the call is started (`done`
+  // settles when its entry is written), or { ok: false, error } if nothing
+  // was done.
+  function requestCall(name) {
+    const label = 'voice: request_call';
+    const contact = contacts.find((c) => c.name === name);
+    if (!contact) {
+      record('rejected', '', `${label}: unknown contact; nothing done`);
+      return { ok: false, error: 'unknown contact' };
+    }
+    const current = incident;
+    if (!current) {
+      record('rejected', contact.name, `${label}: no emergency now; nothing done`);
+      return { ok: false, error: 'no emergency now' };
+    }
+    if (!takeCallSlot(current, contact, label)) return { ok: false, error: 'call cap reached; nothing done' };
+    const status = getStatus()?.status ?? current.lastStatus;
+    const done = placeCall({
+      contact, message: agentMessage(status, ''), status, reason: 'emergency, agent voice request',
+      said: `${label}: tempF ${status.tempF}, minsToDanger ${status.minsToDanger}`,
+    }).catch((err) => report(`voice request_call failed unexpectedly: ${err?.message ?? err}`));
+    return { ok: true, done };
+  }
+  connectVoice?.({ requestCall, inIncident: () => incident !== null });
 
   return {
     onStatus(status) {

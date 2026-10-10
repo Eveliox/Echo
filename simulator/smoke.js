@@ -6,7 +6,8 @@
 // Safety: it never posts to a server it didn't start. It starts its own
 // `node server/server.js` on a free port with ECHO_CALLS=off forced in that
 // server's environment and its Twilio, contact and Gemini settings blanked
-// (so its Responder is off and never reaches Gemini), refuses to run at all if
+// (so its Responder is off and never reaches Gemini) and its ElevenLabs and
+// voice-tool settings blanked (so no voice call and no tool server), refuses to run at all if
 // ECHO_CALLS=live is set here,
 // and always stops the server, also on failure, timeout, or Ctrl-C.
 // The server's status log goes to a temp folder (ECHO_LOG_DIR), never the
@@ -100,6 +101,24 @@ export const BLANKED_CALL_KEYS = [
 // Responder is off, so smoke never calls Gemini and only the ladder calls.
 export const BLANKED_AGENT_KEYS = ['GEMINI_API_KEY'];
 
+// The voice settings, blanked the same way: with them unset the child server
+// never reaches ElevenLabs and never opens the voice tools' port (server/voice.js).
+export const BLANKED_VOICE_KEYS = [
+  'ELEVENLABS_API_KEY', 'ELEVENLABS_AGENT_ID', 'ELEVENLABS_PHONE_NUMBER_ID', 'ECHO_VOICE_SECRET',
+];
+
+// The server's startup lines about voice (server/voice.js): off, and the tool server never listening.
+export const VOICE_OFF_LINE = /^voice: off\b/;
+export const VOICE_TOOLS_LINE = /^voice: tool webhooks\b/;
+
+// Returns the list of reasons the server's output doesn't show voice off; empty means pass.
+export function judgeVoice({ output }) {
+  const failures = [];
+  if (!output.some((line) => VOICE_OFF_LINE.test(line))) failures.push('the server did not print "voice: off"');
+  if (output.some((line) => VOICE_TOOLS_LINE.test(line))) failures.push('the server opened the voice tools\' port');
+  return failures;
+}
+
 // The server's startup line when the Responder is off (server/gemini.js).
 export const RESPONDER_OFF_LINE = 'responder: off (no GEMINI_API_KEY)';
 
@@ -112,15 +131,15 @@ export function judgeResponder({ output }) {
 // Where the child server logs statuses when no folder is given: outside the repo.
 export const DEFAULT_SMOKE_LOG_DIR = join(tmpdir(), 'echo-smoke-logs');
 
-// The child server's environment: the parent's, with ECHO_CALLS=off, the call
-// and agent settings blanked, the port set, the status log in `logDir` (a temp folder),
+// The child server's environment: the parent's, with ECHO_CALLS=off, the call,
+// agent and voice settings blanked, the port set, the status log in `logDir` (a temp folder),
 // and ECHO_BOX_TOKEN set to `boxToken`: never the parent's or server/.env's
 // (set, even to '', it wins over server/.env), so smoke knows the token.
 export function childEnv(parentEnv, port, logDir = DEFAULT_SMOKE_LOG_DIR, boxToken = '') {
   const env = {
     ...parentEnv, ECHO_CALLS: 'off', ECHO_PORT: String(port), ECHO_LOG_DIR: logDir, ECHO_BOX_TOKEN: boxToken,
   };
-  for (const key of [...BLANKED_CALL_KEYS, ...BLANKED_AGENT_KEYS]) env[key] = '';
+  for (const key of [...BLANKED_CALL_KEYS, ...BLANKED_AGENT_KEYS, ...BLANKED_VOICE_KEYS]) env[key] = '';
   return env;
 }
 
@@ -258,7 +277,7 @@ async function run(recording) {
   const leaked = server.output.some((line) => line.includes(token)) ? ['the server printed the box token'] : [];
   return [
     ...judge({ output: server.output, snapshot, lastStatus }), ...judgeAuth({ output: server.output }),
-    ...judgeResponder({ output: server.output }), ...logFailures, ...leaked,
+    ...judgeResponder({ output: server.output }), ...judgeVoice({ output: server.output }), ...logFailures, ...leaked,
   ];
 }
 
@@ -298,7 +317,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   if (failures.length === 0) {
     console.log('smoke: PASS (one ladder call, logged only; server holds the last status; the log replays; '
-      + 'a post without the box token was refused; the Responder was off)');
+      + 'a post without the box token was refused; the Responder and voice were off)');
   } else {
     for (const f of failures) console.error(`smoke: FAIL: ${f}`);
     process.exitCode = 1;

@@ -197,3 +197,51 @@ test('judgeResponder passes only when the server printed the Responder-off line'
   assert.equal(judgeResponder({ output: ['responder: on (Gemini gemini-x; ...)', ladder] }).length, 1, 'on');
   assert.equal(judgeResponder({ output: [`  ${RESPONDER_OFF_LINE}`] }).length, 1, 'whole line only');
 });
+
+test('the child server env blanks the ElevenLabs keys and the voice secret too, whatever the parent has', async () => {
+  const { BLANKED_VOICE_KEYS, BLANKED_AGENT_KEYS } = await import('../smoke.js');
+  assert.deepEqual(BLANKED_VOICE_KEYS,
+    ['ELEVENLABS_API_KEY', 'ELEVENLABS_AGENT_ID', 'ELEVENLABS_PHONE_NUMBER_ID', 'ECHO_VOICE_SECRET']);
+  const parent = {
+    ...realLooking, GEMINI_API_KEY: 'fake-gemini-key', ELEVENLABS_API_KEY: 'fake-eleven-key',
+    ELEVENLABS_AGENT_ID: 'agent_fake', ELEVENLABS_PHONE_NUMBER_ID: 'phnum_fake', ECHO_VOICE_SECRET: 'fake-voice-secret',
+  };
+  const env = childEnv(parent, 4123);
+  for (const key of [...BLANKED_CALL_KEYS, ...BLANKED_AGENT_KEYS, ...BLANKED_VOICE_KEYS]) assert.equal(env[key], '', key);
+});
+
+test('a server/.env with ElevenLabs and a voice secret does not survive the blank, so voice is off in smoke', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'echo-smoke-env-'));
+  const file = join(dir, '.env');
+  writeFileSync(file, 'ELEVENLABS_API_KEY=fake-eleven-key\nELEVENLABS_AGENT_ID=agent_fake\n'
+    + 'ELEVENLABS_PHONE_NUMBER_ID=phnum_fake\nECHO_VOICE_SECRET=fake-voice-secret\n');
+  try {
+    const calls = fileURLToPath(new URL('../../server/calls.js', import.meta.url));
+    const eleven = fileURLToPath(new URL('../../server/elevenlabs.js', import.meta.url));
+    const voice = fileURLToPath(new URL('../../server/voice.js', import.meta.url));
+    const script = `const { loadEnv } = await import(${JSON.stringify(calls)});`
+      + `const { readElevenLabsConfig, missingElevenLabsSettings } = await import(${JSON.stringify(eleven)});`
+      + `const { readVoiceSecret } = await import(${JSON.stringify(voice)});`
+      + `loadEnv(${JSON.stringify(file)});`
+      + 'console.log(JSON.stringify([missingElevenLabsSettings(readElevenLabsConfig()), readVoiceSecret()]));';
+    const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: childEnv({ ELEVENLABS_API_KEY: 'parent-eleven-key' }, 4123), encoding: 'utf8', timeout: 10_000,
+    });
+    assert.equal(run.status, 0, run.stderr);
+    assert.deepEqual(JSON.parse(run.stdout),
+      [['ELEVENLABS_API_KEY', 'ELEVENLABS_AGENT_ID', 'ELEVENLABS_PHONE_NUMBER_ID'], '']);
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test('judgeVoice passes only with a "voice: off" line and no voice tools listening', async () => {
+  const { judgeVoice } = await import('../smoke.js');
+  const off = 'voice: off (the Responder is off; only its calls use ElevenLabs)';
+  const tools = 'voice: tool webhooks on 127.0.0.1:3100 only; tunnel only this port (ngrok http 127.0.0.1:3100), never 3000';
+  assert.deepEqual(judgeVoice({ output: [...startup, off, ladder] }), []);
+  assert.equal(judgeVoice({ output: [...startup, ladder] }).length, 1, 'no line');
+  assert.equal(judgeVoice({ output: ['voice: on: ...', tools] }).length, 2, 'on and listening');
+  assert.equal(judgeVoice({ output: [off, tools] }).length, 1, 'tools listening');
+  assert.equal(judgeVoice({ output: [`  ${off}`] }).length, 1, 'line start only');
+});
