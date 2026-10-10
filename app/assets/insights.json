@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "source": "design example",
+  "generatedAt": null,
+  "real": false,
+  "runs": 0,
+  "realRuns": 0,
+  "mae": null,
+  "evaluation": null,
+  "headline": { "tempF": 92, "timeOfDay": "afternoon", "minutes": 14 },
+  "points": [
+    { "minute": 0, "tempF": 92 },
+    { "minute": 7, "tempF": 98 },
+    { "minute": 14, "tempF": 104 }
+  ],
+  "inputs": { "humidity": 41, "warmRateFPerMin": 0.86 }
+}
