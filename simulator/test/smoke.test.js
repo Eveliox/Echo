@@ -113,3 +113,48 @@ test('judgeLog passes one log whose status lines are the recording\'s, and fails
   assert.equal(judgeLog({ logs: [log.replace('{ "n" : 2 }', '{"n":2}')], lines }).length, 1, 're-serialized is not unchanged');
   assert.equal(judgeLog({ logs: ['# 2026-10-10T20:00:00.000Z\n{"n":1}\n'], lines }).length, 1, 'a missing line fails');
 });
+
+test('the child server gets the token smoke chose, never the parent\'s; none given means auth off', () => {
+  const parent = { ...realLooking, ECHO_BOX_TOKEN: 'parent-box-token' };
+  assert.equal(childEnv(parent, 4123, DEFAULT_SMOKE_LOG_DIR, 'smoke-token').ECHO_BOX_TOKEN, 'smoke-token');
+  assert.equal(childEnv(parent, 4123).ECHO_BOX_TOKEN, '');
+  assert.equal(childEnv({}, 4123).ECHO_BOX_TOKEN, '');
+});
+
+test('a server/.env ECHO_BOX_TOKEN does not override the token smoke gives its child', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'echo-smoke-env-'));
+  const file = join(dir, '.env');
+  writeFileSync(file, 'ECHO_BOX_TOKEN=file-box-token\n');
+  try {
+    const calls = fileURLToPath(new URL('../../server/calls.js', import.meta.url));
+    const auth = fileURLToPath(new URL('../../server/auth.js', import.meta.url));
+    const script = `const { loadEnv } = await import(${JSON.stringify(calls)});`
+      + `const { readBoxToken } = await import(${JSON.stringify(auth)});`
+      + `loadEnv(${JSON.stringify(file)}); console.log(JSON.stringify(readBoxToken()));`;
+    for (const [token, expected] of [['smoke-token', 'smoke-token'], [undefined, '']]) {
+      const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+        env: childEnv({ ECHO_BOX_TOKEN: 'parent-box-token' }, 4123, DEFAULT_SMOKE_LOG_DIR, token),
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+      assert.equal(run.status, 0, run.stderr);
+      assert.equal(JSON.parse(run.stdout), expected);
+    }
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test('judgeAuth passes with the auth-on line and exactly one rejection of one post, and fails otherwise', async () => {
+  const { judgeAuth, REJECTED_ONE_LINE } = await import('../smoke.js');
+  const authOn = 'box token auth: on (the box must send X-Echo-Token, ticket #17; until then every box status gets 401)';
+  const rejected = 'rejected 1 status posts: bad or missing token';
+  assert.equal(REJECTED_ONE_LINE, rejected);
+  assert.deepEqual(judgeAuth({ output: [...startup, authOn, rejected, ladder] }), []);
+  assert.equal(judgeAuth({ output: [...startup, rejected, ladder] }).length, 1, 'missing auth-on line');
+  assert.equal(judgeAuth({ output: [...startup, 'WARNING: box token auth is OFF: ...', ladder] }).length, 2, 'auth off');
+  assert.equal(judgeAuth({ output: [...startup, authOn, ladder] }).length, 1, 'missing rejection line');
+  assert.equal(judgeAuth({ output: [authOn, rejected, rejected] }).length, 1, 'two rejection lines');
+  assert.equal(judgeAuth({ output: [authOn, 'rejected 2 status posts: bad or missing token'] }).length, 1, 'wrong count');
+  assert.equal(judgeAuth({ output: ['  box token auth: on', rejected] }).length, 1, 'prefix only at line start');
+});

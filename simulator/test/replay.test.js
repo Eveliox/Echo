@@ -94,3 +94,34 @@ test('the CLI without --url exits non-zero with the usage and posts nothing', ()
   assert.match(run.stderr, /--url is required/);
   assert.doesNotMatch(run.stdout, /replay: \d/, 'nothing was posted');
 });
+
+test('--token T sends X-Echo-Token: T on every post; without it no such header; the body is unchanged', async () => {
+  const seen = [];
+  const stub = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      seen.push({ token: req.headers['x-echo-token'], body });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{}');
+    });
+  });
+  await new Promise((resolve) => stub.listen(0, '127.0.0.1', resolve));
+  try {
+    const stubUrl = `http://127.0.0.1:${stub.address().port}/status`;
+    await replay(['{"n":1}', '{"n":2}'], { url: stubUrl, intervalMs: 0, token: 'tok-123' });
+    await replay(['{"n":3}'], { url: stubUrl, intervalMs: 0 });
+    assert.deepEqual(seen, [
+      { token: 'tok-123', body: '{"n":1}' }, { token: 'tok-123', body: '{"n":2}' }, { token: undefined, body: '{"n":3}' },
+    ]);
+  } finally {
+    await new Promise((resolve) => { stub.close(resolve); stub.closeAllConnections(); });
+  }
+});
+
+test('CLI --token takes a value and still requires --url', () => {
+  assert.deepEqual(parseArgs(['rec.jsonl', '--url', 'http://x/status', '--token', 'tok-123']),
+    { file: 'rec.jsonl', url: 'http://x/status', intervalMs: 2000, token: 'tok-123' });
+  assert.throws(() => parseArgs(['rec.jsonl', '--token', 'tok-123']), /--url is required/);
+  assert.throws(() => parseArgs(['rec.jsonl', '--url', 'http://x/status', '--token']), /--token needs a value/);
+});

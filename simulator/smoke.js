@@ -10,8 +10,12 @@
 // and always stops the server, also on failure, timeout, or Ctrl-C.
 // The server's status log goes to a temp folder (ECHO_LOG_DIR), never the
 // repo; smoke checks that log replays the recording's lines, then deletes it.
+// The child server gets a fresh random ECHO_BOX_TOKEN each run, which the
+// replay sends; smoke also checks that a post without it gets 401 and changes
+// nothing, and that the token never shows up in the server's output.
 
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import net from 'node:net';
 import { tmpdir } from 'node:os';
@@ -55,6 +59,24 @@ export function judge({ output, snapshot, lastStatus }) {
   return failures;
 }
 
+// The server's token auth lines (server/auth.js). The "on" line is matched on
+// its stable prefix.
+export const AUTH_ON_LINE = /^box token auth: on\b/;
+export const REJECTED_ONE_LINE = 'rejected 1 status posts: bad or missing token';
+
+// Returns the list of reasons the server's output doesn't prove token auth ran
+// end to end; empty means pass. Smoke makes exactly one unauthenticated post,
+// so the server must say auth is on and log exactly one rejection of one post.
+export function judgeAuth({ output }) {
+  const failures = [];
+  if (!output.some((line) => AUTH_ON_LINE.test(line))) failures.push('the server did not print "box token auth: on"');
+  const rejected = output.filter((line) => /^rejected \d+ status posts\b/.test(line));
+  if (rejected.length !== 1 || rejected[0] !== REJECTED_ONE_LINE) {
+    failures.push(`expected exactly one "${REJECTED_ONE_LINE}" line, got ${JSON.stringify(rejected)}`);
+  }
+  return failures;
+}
+
 // Why smoke must not run in this environment, or null. Smoke never dials, but
 // with ECHO_CALLS=live set someone expects real calls; refuse rather than guess.
 export function refuseReason(env) {
@@ -77,10 +99,12 @@ export const BLANKED_CALL_KEYS = [
 export const DEFAULT_SMOKE_LOG_DIR = join(tmpdir(), 'echo-smoke-logs');
 
 // The child server's environment: the parent's, with ECHO_CALLS=off, the call
-// settings blanked, the port set, and the status log in `logDir` (a temp folder).
-export function childEnv(parentEnv, port, logDir = DEFAULT_SMOKE_LOG_DIR) {
+// settings blanked, the port set, the status log in `logDir` (a temp folder),
+// and ECHO_BOX_TOKEN set to `boxToken`: never the parent's or server/.env's
+// (set, even to '', it wins over server/.env), so smoke knows the token.
+export function childEnv(parentEnv, port, logDir = DEFAULT_SMOKE_LOG_DIR, boxToken = '') {
   const env = {
-    ...parentEnv, ECHO_CALLS: 'off', ECHO_PORT: String(port), ECHO_LOG_DIR: logDir,
+    ...parentEnv, ECHO_CALLS: 'off', ECHO_PORT: String(port), ECHO_LOG_DIR: logDir, ECHO_BOX_TOKEN: boxToken,
   };
   for (const key of BLANKED_CALL_KEYS) env[key] = '';
   return env;
@@ -127,12 +151,12 @@ async function getStatus(url) {
 let child = null;
 let logDir = null;
 
-function startServer(port) {
+function startServer(port, boxToken) {
   const output = [];
   let lastOutputAt = Date.now();
   child = spawn(process.execPath, [SERVER], {
     cwd: ROOT,
-    env: childEnv(process.env, port, logDir),
+    env: childEnv(process.env, port, logDir, boxToken),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const exited = new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })));
@@ -161,6 +185,18 @@ async function stopServer() {
   clearTimeout(timer);
 }
 
+// One post of `line` without a token must get 401 and leave GET /status as it was.
+async function checkRejectsUnauthenticated(url, line) {
+  const before = await getStatus(url);
+  const res = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: line, signal: AbortSignal.timeout(5000),
+  });
+  await res.body?.cancel();
+  if (res.status !== 401) return [`a post without the box token got ${res.status}, expected 401`];
+  if (!isDeepStrictEqual(await getStatus(url), before)) return ['a post without the box token changed GET /status'];
+  return [];
+}
+
 async function run(recording) {
   const refused = refuseReason(process.env);
   if (refused) throw new Error(refused);
@@ -170,7 +206,8 @@ async function run(recording) {
 
   logDir = mkdtempSync(join(tmpdir(), 'echo-smoke-logs-'));
   const port = await freePort();
-  const server = startServer(port);
+  const token = randomBytes(24).toString('hex');
+  const server = startServer(port, token);
   const ready = `Echo server listening on port ${port}`;
   const deadline = Date.now() + STARTUP_TIMEOUT_MS;
   let early = null;
@@ -185,8 +222,11 @@ async function run(recording) {
   const fresh = await getStatus(url);
   if (fresh.status !== null) throw new Error(`the server on port ${port} already has a status; not the one smoke started`);
 
+  const authFailures = await checkRejectsUnauthenticated(url, lines.at(-1));
+  if (authFailures.length) return authFailures;
+
   console.log(`smoke: replaying ${lines.length} statuses from ${recording} every ${REPLAY_INTERVAL_MS} ms`);
-  await replay(lines, { url, intervalMs: REPLAY_INTERVAL_MS });
+  await replay(lines, { url, intervalMs: REPLAY_INTERVAL_MS, token });
 
   // Let the server's last log lines arrive: wait for its output to go quiet.
   const settleBy = Date.now() + OUTPUT_SETTLE_MAX_MS;
@@ -201,7 +241,11 @@ async function run(recording) {
     await sleep(50);
     logFailures = judgeLog({ logs: readLogs(logDir), lines });
   }
-  return [...judge({ output: server.output, snapshot, lastStatus }), ...logFailures];
+  const leaked = server.output.some((line) => line.includes(token)) ? ['the server printed the box token'] : [];
+  return [
+    ...judge({ output: server.output, snapshot, lastStatus }), ...judgeAuth({ output: server.output }),
+    ...logFailures, ...leaked,
+  ];
 }
 
 function removeLogDir() {
@@ -239,7 +283,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   }
   if (failures.length === 0) {
-    console.log('smoke: PASS (one ladder call, logged only; server holds the last status; the log replays)');
+    console.log('smoke: PASS (one ladder call, logged only; server holds the last status; the log replays; '
+      + 'a post without the box token was refused)');
   } else {
     for (const f of failures) console.error(`smoke: FAIL: ${f}`);
     process.exitCode = 1;

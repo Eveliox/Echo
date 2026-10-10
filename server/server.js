@@ -8,6 +8,8 @@
 // with ECHO_CALLS=live; Twilio and contacts load from server/.env.
 // ECHO_PORT overrides the port (the smoke check runs its own server on a free one).
 // Each accepted status is also logged to a file in server/logs/, or ECHO_LOG_DIR.
+// With ECHO_BOX_TOKEN set in server/.env, POST /status needs it in the
+// X-Echo-Token header or gets 401 before its body is read (auth.js).
 
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
@@ -19,6 +21,9 @@ import { createLadder } from './ladder.js';
 import { createActionLog } from './actions.js';
 import { createHistory, createStatusLog, logDir, logLine } from './history.js';
 import { isDashboardPath, serveDashboard } from './dashboard.js';
+import {
+  boxTokenStartupMessage, createRejectionLog, readBoxToken, TOKEN_HEADER, tokenMatches,
+} from './auth.js';
 
 export const PORT = 3000;
 const MAX_BODY_BYTES = 4096;
@@ -47,9 +52,11 @@ function requestPath(url) {
 
 // `statusLog` (createStatusLog) is optional: without one nothing is written to disk.
 // `actions` should be the action log given to attachLadder.
+// `boxToken` ('' = auth off) gates POST /status; `rejections` counts and logs
+// the posts it turns away (createRejectionLog).
 export function createServer({
   tracker = createTracker(), history = createHistory(), statusLog = null, actions = createActionLog(),
-  logError = console.error,
+  logError = console.error, boxToken = '', rejections = createRejectionLog({ log: logError }),
 } = {}) {
   const guard = (res, fn) => {
     try {
@@ -76,6 +83,11 @@ export function createServer({
     if (path !== '/status') return send(res, 404, { error: 'not found' });
     if (req.method === 'GET') return send(res, 200, tracker.snapshot());
     if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
+    if (boxToken && !tokenMatches(boxToken, req.headers[TOKEN_HEADER])) {
+      rejections.reject();
+      req.resume(); // drain and discard the body unread
+      return send(res, 401, { error: 'unauthorized' });
+    }
 
     const chunks = [];
     let size = 0;
@@ -137,12 +149,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const actions = createActionLog();
   attachLadder(tracker, { config, actions });
   const statusLog = createStatusLog({ dir: logDir() });
-  createServer({ tracker, statusLog, actions }).listen(port, () => {
+  const boxToken = readBoxToken();
+  createServer({ tracker, statusLog, actions, boxToken }).listen(port, () => {
     console.log(`Echo server listening on port ${port}`);
     console.log(`Echo server logging statuses to ${statusLog.file}`);
     // Missing settings are loud but don't stop the server: status tracking still matters.
     const calls = callsStartupMessage(config);
     (calls.level === 'error' ? console.error : console.log)(calls.text);
     for (const warning of callsStartupWarnings(config)) console.error(warning);
+    const auth = boxTokenStartupMessage(boxToken);
+    (auth.level === 'warn' ? console.error : console.log)(auth.text);
   });
 }
