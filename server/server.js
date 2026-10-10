@@ -3,6 +3,7 @@
 //   GET  /status  { online, lastSeen, status } for the dashboard and app
 //   GET  /history { entries: [{ receivedAt, status }] }, the last 10 minutes, oldest first
 //   GET  /actions { entries: [{ time, action, to, reason }] }, the ladder's action log, oldest first
+//   GET  /        the read-only dashboard page (dashboard.js, files in server/dashboard/)
 // Each new status also feeds the backup ladder (ladder.js). Calls only dial
 // with ECHO_CALLS=live; Twilio and contacts load from server/.env.
 // ECHO_PORT overrides the port (the smoke check runs its own server on a free one).
@@ -17,6 +18,7 @@ import {
 import { createLadder } from './ladder.js';
 import { createActionLog } from './actions.js';
 import { createHistory, createStatusLog, logDir, logLine } from './history.js';
+import { isDashboardPath, serveDashboard } from './dashboard.js';
 
 export const PORT = 3000;
 const MAX_BODY_BYTES = 4096;
@@ -26,13 +28,43 @@ function send(res, code, body) {
   res.end(JSON.stringify(body));
 }
 
+// Answers 500 for an unexpected error so one bad request never takes the
+// server (and the backup ladder) down.
+function fail(res, err, logError) {
+  logError('request failed:', err?.stack ?? err);
+  if (!res.headersSent) send(res, 500, { error: 'internal error' });
+  else res.destroy();
+}
+
+// The request target's path, or null if it can't be parsed (e.g. "//[").
+function requestPath(url) {
+  try {
+    return new URL(url, 'http://localhost').pathname;
+  } catch {
+    return null;
+  }
+}
+
 // `statusLog` (createStatusLog) is optional: without one nothing is written to disk.
 // `actions` should be the action log given to attachLadder.
 export function createServer({
   tracker = createTracker(), history = createHistory(), statusLog = null, actions = createActionLog(),
+  logError = console.error,
 } = {}) {
-  return http.createServer((req, res) => {
-    const path = new URL(req.url, 'http://localhost').pathname;
+  const guard = (res, fn) => {
+    try {
+      fn();
+    } catch (err) {
+      fail(res, err, logError);
+    }
+  };
+  return http.createServer((req, res) => guard(res, () => {
+    const path = requestPath(req.url);
+    if (path === null) return send(res, 400, { error: 'bad request target' });
+    if (isDashboardPath(path)) {
+      serveDashboard(req, res, path).catch((err) => fail(res, err, logError));
+      return;
+    }
     if (path === '/actions') {
       if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
       return send(res, 200, { entries: actions.entries() });
@@ -53,7 +85,7 @@ export function createServer({
       if (size > MAX_BODY_BYTES) tooLarge = true;
       else chunks.push(chunk);
     });
-    req.on('end', () => {
+    req.on('end', () => guard(res, () => {
       if (tooLarge) return send(res, 413, { error: 'body too large' });
       const text = Buffer.concat(chunks).toString('utf8');
       let body;
@@ -68,8 +100,8 @@ export function createServer({
       const { receivedAt } = history.add(body);
       statusLog?.write(receivedAt, logLine(text, body)); // queued, never awaited
       send(res, 200, { ok: true });
-    });
-  });
+    }));
+  }));
 }
 
 // The port to listen on: ECHO_PORT if set, else PORT. A bad value throws

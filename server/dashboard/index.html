@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Echo dashboard</title>
+<link rel="stylesheet" href="/dashboard/style.css">
+<script type="module" src="/dashboard/app.js"></script>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Echo</h1>
+    <p id="connection" class="connection offline">connecting…</p>
+  </header>
+
+  <section id="level" class="level level-none" aria-live="polite">
+    <span class="label">Alert level</span>
+    <span id="level-text" class="big">--</span>
+  </section>
+
+  <section class="readings">
+    <div class="reading">
+      <span class="label">Cabin °F</span>
+      <span id="tempF" class="big">--</span>
+    </div>
+    <div class="reading">
+      <span class="label">Minutes to danger</span>
+      <span id="minsToDanger" class="big">--</span>
+    </div>
+    <div class="reading">
+      <span class="label">Seat occupied</span>
+      <span id="seat" class="big">--</span>
+    </div>
+  </section>
+
+  <section class="curve">
+    <h2>Heat curve</h2>
+    <svg id="curve" viewBox="0 0 300 120" preserveAspectRatio="none" role="img" aria-label="Cabin temperature over time">
+      <polyline id="curve-line" points=""></polyline>
+    </svg>
+    <p class="axis"><span id="curve-range">--</span> <span id="curve-span">--</span></p>
+  </section>
+
+  <section class="feed">
+    <h2>Actions</h2>
+    <p id="feed-empty">No actions yet</p>
+    <ol id="feed"></ol>
+  </section>
+</main>
+</body>
+</html>
