@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 
 #include "logic.h"
 
@@ -422,6 +423,319 @@ static void test_ignition_beats_cancel() {
 }
 
 // ---------------------------------------------------------------------------
+// Sensor conversions and timing
+// ---------------------------------------------------------------------------
+
+static bool near(float a, float b, float tol = 0.01f) { return fabsf(a - b) < tol; }
+
+static void test_timing_constants_match_doc() {
+  CHECK(STATUS_PERIOD_MS == 2000UL);
+  CHECK(SIM_START_F == 80.0f);
+  CHECK(SIM_MIN_F == 60.0f);
+  CHECK(SIM_MAX_F == 140.0f);
+  CHECK(SIM_MAX_RATE_F_PER_S == 0.5f);
+  CHECK(SIM_JOY_DEAD_ZONE == 50);
+}
+
+static void test_lm35_conversion() {
+  CHECK(near(lm35AdcToF(0.0f), 32.0f));
+  // 0.25 V = 25 C = 77 F.
+  CHECK(near(lm35AdcToF(0.25f / 5.0f * 1023.0f), 77.0f));
+  // 0.40 V = 40 C = 104 F.
+  CHECK(near(lm35AdcToF(0.40f / 5.0f * 1023.0f), 104.0f));
+}
+
+static void test_sim_dead_zone_holds() {
+  CHECK(near(simTempStep(80.0f, 512, 2000), 80.0f));
+  CHECK(near(simTempStep(80.0f, 512 + 49, 2000), 80.0f));
+  CHECK(near(simTempStep(80.0f, 512 - 49, 2000), 80.0f));
+  CHECK(simTempStep(80.0f, 512 + 50, 2000) > 80.0f);
+}
+
+static void test_sim_full_push_warms_half_degree_per_second() {
+  // Full right (1023) is just under +512 offset; 2 s -> about +1 F.
+  CHECK(near(simTempStep(80.0f, 1024, 2000), 81.0f));
+  CHECK(near(simTempStep(80.0f, 0, 2000), 79.0f));
+  // 80 F to 104 F in about 48 s of full push, stepped every 2 s.
+  float f = 80.0f;
+  for (int i = 0; i < 24; i++) f = simTempStep(f, 1024, 2000);
+  CHECK(near(f, 104.0f));
+}
+
+static void test_sim_clamps() {
+  CHECK(near(simTempStep(139.9f, 1024, 60000), SIM_MAX_F));
+  CHECK(near(simTempStep(60.1f, 0, 60000), SIM_MIN_F));
+}
+
+static void test_periodic_first_call_then_every_period() {
+  Periodic p;
+  periodicInit(p);
+  CHECK(periodicDue(p, 5000, STATUS_PERIOD_MS));
+  CHECK(!periodicDue(p, 5001, STATUS_PERIOD_MS));
+  CHECK(!periodicDue(p, 6999, STATUS_PERIOD_MS));
+  CHECK(periodicDue(p, 7000, STATUS_PERIOD_MS));
+  // Late by 300 ms: next one is still on the 2 s grid (no drift).
+  CHECK(periodicDue(p, 9300, STATUS_PERIOD_MS));
+  CHECK(!periodicDue(p, 10999, STATUS_PERIOD_MS));
+  CHECK(periodicDue(p, 11000, STATUS_PERIOD_MS));
+}
+
+static void test_periodic_resyncs_after_long_stall() {
+  Periodic p;
+  periodicInit(p);
+  CHECK(periodicDue(p, 0, STATUS_PERIOD_MS));
+  CHECK(periodicDue(p, 10000, STATUS_PERIOD_MS));
+  // No burst of catch-up lines.
+  CHECK(!periodicDue(p, 10001, STATUS_PERIOD_MS));
+  CHECK(periodicDue(p, 12000, STATUS_PERIOD_MS));
+}
+
+static void test_periodic_survives_wraparound() {
+  Periodic p;
+  periodicInit(p);
+  uint32_t t = 0xFFFFFFFFUL - 999;
+  CHECK(periodicDue(p, t, STATUS_PERIOD_MS));
+  CHECK(!periodicDue(p, t + 1999, STATUS_PERIOD_MS));
+  CHECK(periodicDue(p, t + 2000, STATUS_PERIOD_MS));
+}
+
+static void test_debounce_ignores_bounce() {
+  Debouncer d;
+  debounceInit(d, false, 0);
+  // Bouncing contact: never steady long enough.
+  for (uint32_t t = 1; t < 200; t += 5) CHECK(!debounceUpdate(d, (t / 5) % 2 == 0, t));
+}
+
+static void test_debounce_press_and_release() {
+  Debouncer d;
+  debounceInit(d, false, 0);
+  CHECK(!debounceUpdate(d, true, 100));
+  CHECK(!debounceUpdate(d, true, 100 + CANCEL_DEBOUNCE_MS - 1));
+  CHECK(debounceUpdate(d, true, 100 + CANCEL_DEBOUNCE_MS));
+  CHECK(debounceUpdate(d, true, 5000));  // held stays pressed
+  CHECK(debounceUpdate(d, false, 6000));
+  CHECK(!debounceUpdate(d, false, 6000 + CANCEL_DEBOUNCE_MS));
+}
+
+// ---------------------------------------------------------------------------
+// Fault indicator, humidity age limit
+// ---------------------------------------------------------------------------
+
+// Pins the no-retry decision's consequence: with a failed power-up baseline the
+// seat never reads occupied, so the fault code is the only way to notice.
+static void test_seat_without_baseline_never_occupied() {
+  SeatDetector s;
+  seatInit(s);
+  CHECK(!feed(s, OCCUPIED_CM, 10));
+  CHECK(!s.hasBaseline);
+}
+
+static void test_fault_active_only_without_baseline() {
+  SeatDetector none;
+  seatInit(none);
+  SeatDetector ok = seatWithBaseline(EMPTY_CM);
+  CHECK(seatFaultActive(none, LEVEL_IDLE));
+  CHECK(seatFaultActive(none, LEVEL_ARMED));
+  CHECK(!seatFaultActive(ok, LEVEL_IDLE));
+  CHECK(!seatFaultActive(ok, LEVEL_ARMED));
+}
+
+static void test_fault_alarm_levels_win() {
+  SeatDetector none;
+  seatInit(none);
+  CHECK(!seatFaultActive(none, LEVEL_OCCUPANT));
+  CHECK(!seatFaultActive(none, LEVEL_WARNING));
+  CHECK(!seatFaultActive(none, LEVEL_EMERGENCY));
+}
+
+static void test_fault_led_two_short_flashes_per_cycle() {
+  uint32_t base = 10 * FAULT_CYCLE_MS;
+  CHECK(seatFaultLedOn(base));
+  CHECK(seatFaultLedOn(base + FAULT_FLASH_MS - 1));
+  CHECK(!seatFaultLedOn(base + FAULT_FLASH_MS));
+  CHECK(!seatFaultLedOn(base + FAULT_SECOND_FLASH_AT_MS - 1));
+  CHECK(seatFaultLedOn(base + FAULT_SECOND_FLASH_AT_MS));
+  CHECK(!seatFaultLedOn(base + FAULT_SECOND_FLASH_AT_MS + FAULT_FLASH_MS));
+  CHECK(!seatFaultLedOn(base + FAULT_CYCLE_MS - 1));
+  CHECK(seatFaultLedOn(base + FAULT_CYCLE_MS));
+  // Mostly dark: lit 2 x FAULT_FLASH_MS per cycle, so it reads as a code,
+  // not as a steady or evenly blinking level color.
+  uint32_t lit = 0;
+  for (uint32_t t = 0; t < FAULT_CYCLE_MS; t++) lit += seatFaultLedOn(base + t) ? 1 : 0;
+  CHECK(lit == 2 * FAULT_FLASH_MS);
+}
+
+static void test_humidity_starts_invalid() {
+  HumidityHold h;
+  humidityInit(h);
+  float v = -1.0f;
+  CHECK(!humidityCurrent(h, 0, v));
+  CHECK(v == -1.0f);
+}
+
+static void test_humidity_repeats_last_good_until_age_limit() {
+  HumidityHold h;
+  humidityInit(h);
+  humidityUpdate(h, 41.0f, 1000);
+  float v = 0.0f;
+  CHECK(humidityCurrent(h, 1000, v) && v == 41.0f);
+  humidityUpdate(h, NAN, 3000);  // failed read keeps the old value
+  CHECK(humidityCurrent(h, 1000 + HUMIDITY_MAX_AGE_MS, v) && v == 41.0f);
+  CHECK(!humidityCurrent(h, 1000 + HUMIDITY_MAX_AGE_MS + 1, v));
+  // Expired stays expired, even back at an earlier-looking time.
+  CHECK(!humidityCurrent(h, 1000, v));
+  // A new good reading is valid again.
+  humidityUpdate(h, 55.0f, 50000);
+  CHECK(humidityCurrent(h, 50000, v) && v == 55.0f);
+}
+
+static void test_humidity_ignores_out_of_range() {
+  HumidityHold h;
+  humidityInit(h);
+  float v = 0.0f;
+  humidityUpdate(h, -1.0f, 0);
+  humidityUpdate(h, 100.5f, 0);
+  humidityUpdate(h, INFINITY, 0);
+  CHECK(!humidityCurrent(h, 0, v));
+  humidityUpdate(h, 0.0f, 0);
+  CHECK(humidityCurrent(h, 0, v) && v == 0.0f);
+  humidityUpdate(h, 100.0f, 0);
+  CHECK(humidityCurrent(h, 0, v) && v == 100.0f);
+}
+
+static void test_humidity_age_survives_wraparound() {
+  HumidityHold h;
+  humidityInit(h);
+  uint32_t t = 0xFFFFFFFFUL - 999;
+  humidityUpdate(h, 40.0f, t);
+  float v = 0.0f;
+  CHECK(humidityCurrent(h, t + HUMIDITY_MAX_AGE_MS, v) && v == 40.0f);  // wrapped
+  CHECK(!humidityCurrent(h, t + HUMIDITY_MAX_AGE_MS + 1, v));
+}
+
+
+// ---------------------------------------------------------------------------
+// Status line
+// ---------------------------------------------------------------------------
+
+static StatusFields sampleFields() {
+  StatusFields f;
+  f.level = LEVEL_WARNING;
+  f.tempF = 96.4f;
+  f.humidity = 41.0f;
+  f.presence = true;
+  f.distanceCm = 38.0f;
+  return f;
+}
+
+static void test_status_line_exact_format() {
+  char buf[STATUS_LINE_MAX];
+  StatusFields f = sampleFields();
+  uint16_t n = statusFormat(buf, sizeof buf, f);
+  const char *want =
+      "{\"state\":\"WARNING\",\"tempF\":96.4,\"humidity\":41,\"presence\":true,"
+      "\"distanceCm\":38,\"motion\":null,\"minsToDanger\":null,\"battery\":null}";
+  CHECK(strcmp(buf, want) == 0);
+  CHECK(n == strlen(want));
+  if (strcmp(buf, want) != 0) printf("  got  %s\n  want %s\n", buf, want);
+}
+
+static void test_status_line_has_doc_fields_in_order_without_light() {
+  char buf[STATUS_LINE_MAX];
+  StatusFields f = sampleFields();
+  statusFormat(buf, sizeof buf, f);
+  const char *order[] = {"\"state\":", "\"tempF\":", "\"humidity\":", "\"presence\":",
+                         "\"distanceCm\":", "\"motion\":", "\"minsToDanger\":",
+                         "\"battery\":"};
+  const char *prev = buf;
+  for (unsigned i = 0; i < sizeof order / sizeof order[0]; i++) {
+    const char *at = strstr(buf, order[i]);
+    CHECK(at != NULL && at >= prev);
+    if (at) prev = at;
+  }
+  CHECK(strstr(buf, "light") == NULL);
+  CHECK(buf[0] == '{');  // the ESP drops lines that don't start with {
+  CHECK(strchr(buf, '\n') == NULL);
+}
+
+static void test_status_line_every_state_name() {
+  char buf[STATUS_LINE_MAX];
+  StatusFields f = sampleFields();
+  const char *names[] = {"IDLE", "ARMED", "OCCUPANT", "WARNING", "EMERGENCY"};
+  for (int l = LEVEL_IDLE; l <= LEVEL_EMERGENCY; l++) {
+    f.level = (AlertLevel)l;
+    CHECK(statusFormat(buf, sizeof buf, f) > 0);
+    char want[32];
+    snprintf(want, sizeof want, "{\"state\":\"%s\",", names[l]);
+    CHECK(strncmp(buf, want, strlen(want)) == 0);
+  }
+}
+
+static void test_status_line_number_rounding() {
+  char buf[STATUS_LINE_MAX];
+  StatusFields f = sampleFields();
+  f.tempF = 80.0f;
+  f.humidity = 40.6f;
+  f.presence = false;
+  f.distanceCm = 61.4f;
+  statusFormat(buf, sizeof buf, f);
+  CHECK(strstr(buf, "\"tempF\":80.0,") != NULL);
+  CHECK(strstr(buf, "\"humidity\":41,") != NULL);
+  CHECK(strstr(buf, "\"presence\":false,") != NULL);
+  CHECK(strstr(buf, "\"distanceCm\":61,") != NULL);
+
+  f.tempF = 103.96f;  // rounds up across the decimal
+  statusFormat(buf, sizeof buf, f);
+  CHECK(strstr(buf, "\"tempF\":104.0,") != NULL);
+
+  f.tempF = -3.45f;
+  statusFormat(buf, sizeof buf, f);
+  CHECK(strstr(buf, "\"tempF\":-3.5,") != NULL);
+
+  f.tempF = -0.01f;  // no "-0.0"
+  statusFormat(buf, sizeof buf, f);
+  CHECK(strstr(buf, "\"tempF\":0.0,") != NULL);
+}
+
+static void test_status_line_rejects_non_finite_required_numbers() {
+  char buf[STATUS_LINE_MAX];
+  float bad[] = {NAN, INFINITY, -INFINITY, 1e9f};
+  for (unsigned i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+    StatusFields f = sampleFields();
+    f.tempF = bad[i];
+    CHECK(statusFormat(buf, sizeof buf, f) == 0 && buf[0] == '\0');
+    f = sampleFields();
+    f.humidity = bad[i];
+    CHECK(statusFormat(buf, sizeof buf, f) == 0 && buf[0] == '\0');
+    f = sampleFields();
+    f.distanceCm = bad[i];
+    CHECK(statusFormat(buf, sizeof buf, f) == 0 && buf[0] == '\0');
+  }
+}
+
+static void test_status_line_never_overflows() {
+  StatusFields f = sampleFields();
+  f.level = LEVEL_EMERGENCY;
+  f.tempF = -99999.9f;
+  f.humidity = -99999.0f;
+  f.distanceCm = -99999.0f;
+  char big[STATUS_LINE_MAX];
+  uint16_t full = statusFormat(big, sizeof big, f);
+  CHECK(full > 0 && full < STATUS_LINE_MAX);
+
+  // Every too-small buffer fails cleanly and writes nothing past cap.
+  for (uint16_t cap = 1; cap <= full; cap++) {
+    char small[STATUS_LINE_MAX + 4];
+    memset(small, 'x', sizeof small);
+    CHECK(statusFormat(small, cap, f) == 0);
+    CHECK(small[0] == '\0');
+    for (uint16_t i = cap; i < sizeof small; i++) CHECK(small[i] == 'x');
+  }
+  char exact[STATUS_LINE_MAX];
+  CHECK(statusFormat(exact, full + 1, f) == full);
+}
+
+// ---------------------------------------------------------------------------
 
 int main() {
   test_seat_constants_match_doc();
@@ -458,6 +772,30 @@ int main() {
   test_after_cancel_occupied_seat_needs_full_dwell_again();
   test_ignition_on_returns_to_idle_from_every_level();
   test_ignition_beats_cancel();
+  test_timing_constants_match_doc();
+  test_lm35_conversion();
+  test_sim_dead_zone_holds();
+  test_sim_full_push_warms_half_degree_per_second();
+  test_sim_clamps();
+  test_periodic_first_call_then_every_period();
+  test_periodic_resyncs_after_long_stall();
+  test_periodic_survives_wraparound();
+  test_debounce_ignores_bounce();
+  test_debounce_press_and_release();
+  test_seat_without_baseline_never_occupied();
+  test_fault_active_only_without_baseline();
+  test_fault_alarm_levels_win();
+  test_fault_led_two_short_flashes_per_cycle();
+  test_humidity_starts_invalid();
+  test_humidity_repeats_last_good_until_age_limit();
+  test_humidity_ignores_out_of_range();
+  test_humidity_age_survives_wraparound();
+  test_status_line_exact_format();
+  test_status_line_has_doc_fields_in_order_without_light();
+  test_status_line_every_state_name();
+  test_status_line_number_rounding();
+  test_status_line_rejects_non_finite_required_numbers();
+  test_status_line_never_overflows();
 
   printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

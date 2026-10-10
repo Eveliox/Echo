@@ -7,6 +7,7 @@
 #define ECHO_LOGIC_H
 
 #include <stdint.h>
+#include <math.h>
 
 // ---------------------------------------------------------------------------
 // Seat detection ("Seat detection" in docs/firmware.md, "Firmware behavior").
@@ -225,5 +226,283 @@ inline AlertLevel alertStep(AlertState &s, const AlertInputs &in) {
 }
 
 // --- end alert levels ------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Sensor conversions and timing ("Firmware behavior" and "Temperature
+// simulation" in docs/firmware.md). Pure math; the sketch does the reads.
+//
+// Decisions not in the doc (pinned by tests in test/logic_test.cpp):
+// - The 2 s status period is due on the very first call, then every period
+//   after the previous due time (no drift), and survives millis() wraparound.
+//   If the loop fell more than one period behind, it resyncs to `now` instead
+//   of firing a burst of catch-up lines.
+// - The cancel button counts as pressed only after its raw reading has been
+//   steady for CANCEL_DEBOUNCE_MS; release is debounced the same way.
+// ---------------------------------------------------------------------------
+
+static const uint32_t STATUS_PERIOD_MS = 2000UL;
+
+// LM35: 10 mV per degree C on a 5 V, 10-bit ADC.
+static const float ADC_REF_V = 5.0f;
+static const float ADC_MAX = 1023.0f;
+
+// Joystick simulation constants from docs/firmware.md "Temperature simulation".
+static const float SIM_START_F = 80.0f;
+static const float SIM_MIN_F = 60.0f;
+static const float SIM_MAX_F = 140.0f;
+static const float SIM_MAX_RATE_F_PER_S = 0.5f;
+static const int16_t SIM_JOY_CENTER = 512;
+static const int16_t SIM_JOY_DEAD_ZONE = 50;
+
+static const uint32_t CANCEL_DEBOUNCE_MS = 30UL;
+
+// Average LM35 ADC reading -> degrees F.
+inline float lm35AdcToF(float avgAdc) {
+  float tempC = avgAdc * ADC_REF_V / ADC_MAX * 100.0f;
+  return tempC * 9.0f / 5.0f + 32.0f;
+}
+
+// One simulation step: joystick X reading (0-1023) applied for `elapsedMs`.
+// Right warms, left cools, the dead zone holds; result is clamped.
+inline float simTempStep(float simF, int16_t joyAdc, uint32_t elapsedMs) {
+  int16_t offset = joyAdc - SIM_JOY_CENTER;
+  if (offset > -SIM_JOY_DEAD_ZONE && offset < SIM_JOY_DEAD_ZONE) offset = 0;
+  float seconds = elapsedMs / 1000.0f;
+  simF += (offset / 512.0f) * SIM_MAX_RATE_F_PER_S * seconds;
+  if (simF < SIM_MIN_F) simF = SIM_MIN_F;
+  if (simF > SIM_MAX_F) simF = SIM_MAX_F;
+  return simF;
+}
+
+struct Periodic {
+  bool started;
+  uint32_t lastMs;
+};
+
+inline void periodicInit(Periodic &p) {
+  p.started = false;
+  p.lastMs = 0;
+}
+
+// True when a new period has started; call every loop with millis().
+inline bool periodicDue(Periodic &p, uint32_t nowMs, uint32_t periodMs) {
+  if (!p.started) {
+    p.started = true;
+    p.lastMs = nowMs;
+    return true;
+  }
+  uint32_t elapsed = nowMs - p.lastMs;
+  if (elapsed < periodMs) return false;
+  p.lastMs = (elapsed < 2 * periodMs) ? p.lastMs + periodMs : nowMs;
+  return true;
+}
+
+struct Debouncer {
+  bool stable;       // debounced state
+  bool lastRaw;
+  uint32_t changedMs;  // when lastRaw last changed
+};
+
+inline void debounceInit(Debouncer &d, bool raw, uint32_t nowMs) {
+  d.stable = raw;
+  d.lastRaw = raw;
+  d.changedMs = nowMs;
+}
+
+// Feeds one raw reading; returns the debounced state.
+inline bool debounceUpdate(Debouncer &d, bool raw, uint32_t nowMs) {
+  if (raw != d.lastRaw) {
+    d.lastRaw = raw;
+    d.changedMs = nowMs;
+  } else if (raw != d.stable && (uint32_t)(nowMs - d.changedMs) >= CANCEL_DEBOUNCE_MS) {
+    d.stable = raw;
+  }
+  return d.stable;
+}
+
+// --- end sensor conversions and timing -------------------------------------
+
+// ---------------------------------------------------------------------------
+// No-baseline fault indicator, humidity age limit.
+//
+// Decisions not in the doc (pinned by tests in test/logic_test.cpp):
+// - The seat baseline is taken only at power-up with the seat empty (doc,
+//   "Seat detection"); there is no automatic retry, because a later retry could
+//   learn an occupied seat as "empty" and never alarm. If the power-up baseline
+//   fails, the box cannot reach OCCUPANT until it is power-cycled with the seat
+//   empty, and it shows a fault until then.
+// - While there is no baseline and the level is below OCCUPANT, the RGB LED
+//   shows a fault code: magenta (red + blue, a color no level uses), two short
+//   flashes every FAULT_CYCLE_MS. From OCCUPANT up the level pattern always
+//   wins and the fault code is off.
+// - A good humidity reading is reused for at most HUMIDITY_MAX_AGE_MS; after
+//   that there is no valid humidity and the caller sends its placeholder.
+//   Out-of-range (outside 0-100 %) or NaN readings are ignored.
+// ---------------------------------------------------------------------------
+
+static const uint32_t FAULT_CYCLE_MS = 2000UL;
+static const uint32_t FAULT_FLASH_MS = 100UL;
+static const uint32_t FAULT_SECOND_FLASH_AT_MS = 300UL;
+
+// Whether the no-baseline fault code should show at all. Alarm levels win.
+inline bool seatFaultActive(const SeatDetector &s, AlertLevel level) {
+  return !s.hasBaseline && level < LEVEL_OCCUPANT;
+}
+
+// Whether the fault code's magenta is lit at `nowMs` (two short flashes per
+// cycle). Only meaningful while seatFaultActive is true.
+inline bool seatFaultLedOn(uint32_t nowMs) {
+  uint32_t phase = nowMs % FAULT_CYCLE_MS;
+  if (phase < FAULT_FLASH_MS) return true;
+  return phase >= FAULT_SECOND_FLASH_AT_MS && phase < FAULT_SECOND_FLASH_AT_MS + FAULT_FLASH_MS;
+}
+
+static const uint32_t HUMIDITY_MAX_AGE_MS = 30000UL;
+
+struct HumidityHold {
+  bool have;
+  float value;
+  uint32_t atMs;  // when `value` was read
+};
+
+inline void humidityInit(HumidityHold &h) {
+  h.have = false;
+  h.value = 0.0f;
+  h.atMs = 0;
+}
+
+// Feeds one DHT11 reading; bad readings leave the last good one in place.
+inline void humidityUpdate(HumidityHold &h, float reading, uint32_t nowMs) {
+  if (!(reading >= 0.0f && reading <= 100.0f)) return;  // false for NaN too
+  h.have = true;
+  h.value = reading;
+  h.atMs = nowMs;
+}
+
+// True (and sets `out`) while the last good reading is at most
+// HUMIDITY_MAX_AGE_MS old. Once expired it stays expired until a new good
+// reading, even if millis() later wraps around to look fresh.
+inline bool humidityCurrent(HumidityHold &h, uint32_t nowMs, float &out) {
+  if (!h.have) return false;
+  if ((uint32_t)(nowMs - h.atMs) > HUMIDITY_MAX_AGE_MS) {
+    h.have = false;
+    return false;
+  }
+  out = h.value;
+  return true;
+}
+
+// --- end fault indicator, humidity age -------------------------------------
+
+// ---------------------------------------------------------------------------
+// Status line ("Data format and Wi-Fi" in docs/firmware.md). Field names,
+// order, and types follow the doc. `light` is pending approval, so it is left
+// out. `motion`, `minsToDanger`, and `battery` are sent as null until their
+// tickets land.
+//
+// No snprintf: avr-libc's printf family has no %f, so numbers are written by
+// hand. tempF has one decimal; humidity and distanceCm are rounded integers.
+// The server requires tempF, humidity, and distanceCm to be numbers, so a
+// non-finite value there makes statusFormat fail (returns 0) instead of
+// sending a bad line; the sketch keeps last good values (humidity: a
+// placeholder once too old) to avoid that.
+// ---------------------------------------------------------------------------
+
+static const uint16_t STATUS_LINE_MAX = 192;  // buffer size incl. terminator
+
+struct StatusFields {
+  AlertLevel level;
+  float tempF;
+  float humidity;
+  bool presence;
+  float distanceCm;
+};
+
+struct StrBuf {
+  char *buf;
+  uint16_t cap;
+  uint16_t len;
+  bool ok;
+};
+
+inline void sbPutc(StrBuf &b, char c) {
+  if (!b.ok) return;
+  if (b.len + 1 >= b.cap) {  // keep room for the terminator
+    b.ok = false;
+    return;
+  }
+  b.buf[b.len++] = c;
+}
+
+inline void sbPuts(StrBuf &b, const char *s) {
+  while (*s) sbPutc(b, *s++);
+}
+
+inline void sbPutUint(StrBuf &b, uint32_t v) {
+  char tmp[10];
+  uint8_t n = 0;
+  do {
+    tmp[n++] = (char)('0' + v % 10);
+    v /= 10;
+  } while (v > 0);
+  while (n > 0) sbPutc(b, tmp[--n]);
+}
+
+// Largest magnitude the number writers accept; far beyond any sensor value.
+static const float STATUS_NUM_LIMIT = 100000.0f;
+
+inline bool statusNumOk(float v) {
+  return v > -STATUS_NUM_LIMIT && v < STATUS_NUM_LIMIT;  // false for NaN too
+}
+
+// Rounded to the nearest integer, halves away from zero.
+inline void sbPutRounded(StrBuf &b, float v) {
+  if (!statusNumOk(v)) {
+    b.ok = false;
+    return;
+  }
+  uint32_t r = (uint32_t)(fabsf(v) + 0.5f);
+  if (v < 0 && r != 0) sbPutc(b, '-');
+  sbPutUint(b, r);
+}
+
+// One decimal place, rounded, e.g. 96.4 or -3.5.
+inline void sbPutFixed1(StrBuf &b, float v) {
+  if (!statusNumOk(v)) {
+    b.ok = false;
+    return;
+  }
+  uint32_t tenths = (uint32_t)(fabsf(v) * 10.0f + 0.5f);
+  if (v < 0 && tenths != 0) sbPutc(b, '-');
+  sbPutUint(b, tenths / 10);
+  sbPutc(b, '.');
+  sbPutc(b, (char)('0' + tenths % 10));
+}
+
+// Writes one JSON status line (no newline) into `out`. Returns its length, or
+// 0 if it didn't fit or a required number was not finite (out is then "").
+inline uint16_t statusFormat(char *out, uint16_t cap, const StatusFields &f) {
+  if (cap == 0) return 0;
+  StrBuf b = {out, cap, 0, true};
+  sbPuts(b, "{\"state\":\"");
+  sbPuts(b, alertLevelName(f.level));
+  sbPuts(b, "\",\"tempF\":");
+  sbPutFixed1(b, f.tempF);
+  sbPuts(b, ",\"humidity\":");
+  sbPutRounded(b, f.humidity);
+  sbPuts(b, ",\"presence\":");
+  sbPuts(b, f.presence ? "true" : "false");
+  sbPuts(b, ",\"distanceCm\":");
+  sbPutRounded(b, f.distanceCm);
+  sbPuts(b, ",\"motion\":null,\"minsToDanger\":null,\"battery\":null}");
+  if (!b.ok) {
+    out[0] = '\0';
+    return 0;
+  }
+  out[b.len] = '\0';
+  return b.len;
+}
+
+// --- end status line -------------------------------------------------------
 
 #endif  // ECHO_LOGIC_H
