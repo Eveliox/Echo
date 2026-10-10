@@ -505,4 +505,199 @@ inline uint16_t statusFormat(char *out, uint16_t cap, const StatusFields &f) {
 
 // --- end status line -------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Local alarm: RGB LED, buzzer, and LCD per level (level table, colors, and
+// LCD line 1 format in docs/firmware.md, "Firmware behavior"). These say what
+// the outputs should be at a given time; the sketch drives the pins.
+//
+// Decisions not in the doc (pinned by tests in test/logic_test.cpp):
+// - Patterns run from the moment the level was entered (LevelClock), so a new
+//   level shows and sounds right away: blinks start lit, the first chirp, beep,
+//   or siren sweep starts at once.
+// - Blinking (ARMED, OCCUPANT) is half on, half off every LED_BLINK_PERIOD_MS;
+//   EMERGENCY's red flashes faster, every LED_FLASH_PERIOD_MS.
+// - The no-baseline fault code (magenta) keeps its rule: it replaces the IDLE
+//   and ARMED colors; from OCCUPANT up the level pattern wins.
+// - Chirp and beep pitches and lengths, and the siren's sweep time (up then
+//   down, a triangle), are picked here. The siren frequency moves in
+//   SIREN_STEP_MS steps so the sketch retunes tone() at most that often.
+// - LCD line 1: level name on the left, temperature right-aligned to the last
+//   column (one decimal, "F"); outside -99.9..999.9 or NaN it shows "--.-F".
+// - LCD line 2 for WARNING and EMERGENCY: unknown minutes to danger (null:
+//   NaN or negative) shows "DANGER IN --.-m"; 999.95 or more shows
+//   "DANGER IN >999m".
+// - With SIMULATE_TEMP on, line 2 alternates: its level text for the first
+//   half of every SIM_LCD_PERIOD_MS, then SIM_LCD_TEXT. Line 1 has no room for
+//   SIM next to "EMERGENCY 104.0F", and it always keeps the level and temp.
+// - Every line is exactly LCD_COLS characters, space-padded, so the sketch can
+//   overwrite in place without clearing.
+// ---------------------------------------------------------------------------
+
+struct RgbColor {
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+};
+
+static const RgbColor RGB_OFF = {0, 0, 0};
+static const RgbColor RGB_BLUE = {0, 0, 255};
+static const RgbColor RGB_YELLOW = {255, 120, 0};
+static const RgbColor RGB_RED = {255, 0, 0};
+static const RgbColor RGB_FAULT_MAGENTA = {255, 0, 255};
+
+static const uint32_t LED_BLINK_PERIOD_MS = 1000UL;
+static const uint32_t LED_FLASH_PERIOD_MS = 250UL;
+
+static const uint32_t CHIRP_PERIOD_MS = 5000UL;
+static const uint32_t CHIRP_MS = 80UL;
+static const uint16_t CHIRP_HZ = 2000;
+
+static const uint32_t BEEP_PERIOD_MS = 1000UL;
+static const uint32_t BEEP_MS = 200UL;
+static const uint16_t BEEP_HZ = 1500;
+
+static const uint16_t SIREN_LOW_HZ = 600;
+static const uint16_t SIREN_HIGH_HZ = 1200;
+static const uint32_t SIREN_PERIOD_MS = 2000UL;  // low -> high -> low
+static const uint32_t SIREN_STEP_MS = 10UL;
+
+static const uint8_t LCD_COLS = 16;
+static const uint8_t LCD_ROWS = 2;
+static const uint8_t LCD_LINE_BUF = LCD_COLS + 1;  // incl. terminator
+static const uint32_t SIM_LCD_PERIOD_MS = 4000UL;
+static const char SIM_LCD_TEXT[] = "SIMULATED TEMP";
+
+// When the current level started, for the level patterns.
+struct LevelClock {
+  AlertLevel level;
+  uint32_t sinceMs;
+};
+
+inline void levelClockInit(LevelClock &c, AlertLevel level, uint32_t nowMs) {
+  c.level = level;
+  c.sinceMs = nowMs;
+}
+
+// Restarts the clock when the level changed. Call after every alertStep.
+inline void levelClockUpdate(LevelClock &c, AlertLevel level, uint32_t nowMs) {
+  if (level != c.level) levelClockInit(c, level, nowMs);
+}
+
+// Milliseconds in the current level; millis() wraparound is handled.
+inline uint32_t levelClockElapsed(const LevelClock &c, uint32_t nowMs) {
+  return nowMs - c.sinceMs;
+}
+
+// Lit for the first half of each period.
+inline bool blinkOn(uint32_t inLevelMs, uint32_t periodMs) {
+  return inLevelMs % periodMs < periodMs / 2;
+}
+
+// Level color at `inLevelMs` into the level; RGB_OFF during a blink's dark half.
+inline RgbColor levelLedColor(AlertLevel level, uint32_t inLevelMs) {
+  switch (level) {
+    case LEVEL_IDLE: return RGB_BLUE;
+    case LEVEL_ARMED: return blinkOn(inLevelMs, LED_BLINK_PERIOD_MS) ? RGB_BLUE : RGB_OFF;
+    case LEVEL_OCCUPANT: return blinkOn(inLevelMs, LED_BLINK_PERIOD_MS) ? RGB_YELLOW : RGB_OFF;
+    case LEVEL_WARNING: return RGB_YELLOW;
+    case LEVEL_EMERGENCY: return blinkOn(inLevelMs, LED_FLASH_PERIOD_MS) ? RGB_RED : RGB_OFF;
+  }
+  return RGB_OFF;
+}
+
+// What the RGB LED shows: the seat fault code while it is active, else the
+// level color. The fault code runs on `nowMs`, the level pattern on `inLevelMs`.
+inline RgbColor alarmLedColor(const SeatDetector &s, AlertLevel level, uint32_t inLevelMs,
+                              uint32_t nowMs) {
+  if (seatFaultActive(s, level)) return seatFaultLedOn(nowMs) ? RGB_FAULT_MAGENTA : RGB_OFF;
+  return levelLedColor(level, inLevelMs);
+}
+
+// PWM value for one color channel; a common-anode LED lights on LOW.
+inline uint8_t rgbPinValue(uint8_t value, bool commonAnode) {
+  return commonAnode ? (uint8_t)(255 - value) : value;
+}
+
+// Buzzer frequency at `inLevelMs` into the level; 0 means silent.
+inline uint16_t buzzerHz(AlertLevel level, uint32_t inLevelMs) {
+  switch (level) {
+    case LEVEL_IDLE:
+    case LEVEL_ARMED:
+      return 0;
+    case LEVEL_OCCUPANT:
+      return inLevelMs % CHIRP_PERIOD_MS < CHIRP_MS ? CHIRP_HZ : 0;
+    case LEVEL_WARNING:
+      return inLevelMs % BEEP_PERIOD_MS < BEEP_MS ? BEEP_HZ : 0;
+    case LEVEL_EMERGENCY: {
+      uint32_t phase = inLevelMs % SIREN_PERIOD_MS;
+      phase -= phase % SIREN_STEP_MS;
+      uint32_t half = SIREN_PERIOD_MS / 2;
+      uint32_t span = SIREN_HIGH_HZ - SIREN_LOW_HZ;
+      uint32_t up = phase < half ? phase : SIREN_PERIOD_MS - phase;
+      return (uint16_t)(SIREN_LOW_HZ + span * up / half);
+    }
+  }
+  return 0;
+}
+
+// Pads `b` with spaces to a full LCD line and terminates it.
+inline void lcdFinish(StrBuf &b) {
+  while (b.len < LCD_COLS) b.buf[b.len++] = ' ';
+  b.buf[b.len] = '\0';
+}
+
+// Temperature as shown on the LCD, e.g. "96.4F"; at most 6 characters.
+inline void lcdPutTemp(StrBuf &b, float tempF) {
+  if (!(tempF > -99.95f && tempF < 999.95f)) {  // false for NaN too
+    sbPuts(b, "--.-F");
+    return;
+  }
+  sbPutFixed1(b, tempF);
+  sbPutc(b, 'F');
+}
+
+// LCD line 1: level name and temperature, e.g. "WARNING    96.4F".
+inline void lcdLine1(char out[LCD_LINE_BUF], AlertLevel level, float tempF) {
+  char temp[8];
+  StrBuf t = {temp, sizeof temp, 0, true};
+  lcdPutTemp(t, tempF);
+  StrBuf b = {out, LCD_LINE_BUF, 0, true};
+  sbPuts(b, alertLevelName(level));
+  while (b.ok && b.len + t.len < LCD_COLS) sbPutc(b, ' ');
+  for (uint16_t i = 0; i < t.len; i++) sbPutc(b, temp[i]);
+  lcdFinish(b);
+}
+
+// LCD line 2: the level text, or SIM_LCD_TEXT in the SIM half of the cycle.
+// `minsToDanger` is NaN or negative when unknown (null in the status line).
+inline void lcdLine2(char out[LCD_LINE_BUF], AlertLevel level, float minsToDanger,
+                     bool simulating, uint32_t nowMs) {
+  StrBuf b = {out, LCD_LINE_BUF, 0, true};
+  if (simulating && nowMs % SIM_LCD_PERIOD_MS >= SIM_LCD_PERIOD_MS / 2) {
+    sbPuts(b, SIM_LCD_TEXT);
+    lcdFinish(b);
+    return;
+  }
+  switch (level) {
+    case LEVEL_IDLE: sbPuts(b, "CAR ON"); break;
+    case LEVEL_ARMED: sbPuts(b, "SEAT EMPTY"); break;
+    case LEVEL_OCCUPANT: sbPuts(b, "SEAT OCCUPIED"); break;
+    case LEVEL_WARNING:
+    case LEVEL_EMERGENCY:
+      sbPuts(b, "DANGER IN ");
+      if (!(minsToDanger >= 0.0f)) {  // NaN or negative: unknown
+        sbPuts(b, "--.-");
+      } else if (minsToDanger >= 999.95f) {
+        sbPuts(b, ">999");
+      } else {
+        sbPutFixed1(b, minsToDanger);
+      }
+      sbPutc(b, 'm');
+      break;
+  }
+  lcdFinish(b);
+}
+
+// --- end local alarm -------------------------------------------------------
+
 #endif  // ECHO_LOGIC_H

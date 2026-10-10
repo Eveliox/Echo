@@ -2,13 +2,14 @@
 // Reads the sensors, runs the alert logic, and sends one status line every
 // STATUS_PERIOD_MS to USB Serial and to the ESP8266 on Serial1.
 // If the power-up seat baseline fails, it shows a fault code on the RGB LED
-// until a power cycle with the seat empty. Level colors, buzzer, LCD, and
-// minutes to danger come in later tickets.
+// until a power cycle with the seat empty. The RGB LED, buzzer, and LCD follow
+// the alert level; minutes to danger comes in a later ticket.
 //
-// Library: "DHT sensor library" by Adafruit (see docs/firmware.md, "Setup and
-// build order").
+// Libraries: "DHT sensor library" by Adafruit (see docs/firmware.md, "Setup and
+// build order") and the built-in LiquidCrystal.
 
 #include <DHT.h>
+#include <LiquidCrystal.h>
 
 #include "logic.h"
 
@@ -21,16 +22,39 @@ const uint8_t IGNITION_PIN = 4;  // jumper to GND: plugged in (LOW) = car on
 const uint8_t CANCEL_PIN = 5;    // button to GND: pressed = LOW
 const uint8_t US_ECHO_PIN = 6;
 const uint8_t US_TRIG_PIN = 7;
+const uint8_t BUZZER_PIN = 8;  // tone() only
+const uint8_t LCD_RS_PIN = 22;
+const uint8_t LCD_E_PIN = 23;
+const uint8_t LCD_D4_PIN = 24;
+const uint8_t LCD_D5_PIN = 25;
+const uint8_t LCD_D6_PIN = 26;
+const uint8_t LCD_D7_PIN = 27;
 const uint8_t RGB_RED_PIN = 44;
 const uint8_t RGB_GREEN_PIN = 45;
 const uint8_t RGB_BLUE_PIN = 46;
 const uint8_t LM35_PIN = A1;
+
+// tone() owns the timer behind these two pins, so no PWM output may use them
+// (CLAUDE.md, "Hardware rules for code"). The build fails if one does.
+const uint8_t TONE_TIMER_PIN_A = 9;
+const uint8_t TONE_TIMER_PIN_B = 10;
+constexpr bool clearOfToneTimer(uint8_t pin) {
+  return pin != TONE_TIMER_PIN_A && pin != TONE_TIMER_PIN_B;
+}
+static_assert(clearOfToneTimer(RGB_RED_PIN),
+              "RGB_RED_PIN is on the tone() timer: see CLAUDE.md hardware rule on pins 9 and 10");
+static_assert(clearOfToneTimer(RGB_GREEN_PIN),
+              "RGB_GREEN_PIN is on the tone() timer: see CLAUDE.md hardware rule on pins 9 and 10");
+static_assert(clearOfToneTimer(RGB_BLUE_PIN),
+              "RGB_BLUE_PIN is on the tone() timer: see CLAUDE.md hardware rule on pins 9 and 10");
+static_assert(clearOfToneTimer(BUZZER_PIN),
+              "BUZZER_PIN is on the tone() timer: see CLAUDE.md hardware rule on pins 9 and 10");
 const uint8_t JOY_X_PIN = A3;
 
 const unsigned long SERIAL_BAUD = 115200UL;
 
 // Set to true if the RGB LED turns out to be common anode (docs/firmware.md,
-// "RGB LED note"); then LOW lights a color.
+// "RGB LED note"); then each color value is inverted.
 const bool RGB_COMMON_ANODE = false;
 
 // Sent as humidity when there is no recent good DHT11 reading. A number for
@@ -43,13 +67,18 @@ const unsigned long PING_TIMEOUT_US = 25000UL;
 const unsigned long PING_GAP_MS = 60UL;
 const float US_PER_CM = 58.0f;  // round-trip microseconds per cm
 
+// Not known until the minutes-to-danger ticket; NaN shows as unknown on the LCD.
+const float MINS_TO_DANGER_UNKNOWN = NAN;
+
 DHT dht(DHT_PIN, DHT11);
+LiquidCrystal lcd(LCD_RS_PIN, LCD_E_PIN, LCD_D4_PIN, LCD_D5_PIN, LCD_D6_PIN, LCD_D7_PIN);
 
 AlertState alertState;
 SeatDetector seat;
 Debouncer cancelButton;
 Periodic statusTimer;
 HumidityHold humidity;
+LevelClock levelClock;
 
 float tempF = SIM_START_F;
 float simTempF = SIM_START_F;
@@ -59,15 +88,21 @@ unsigned long lastSimUpdate = 0;
 float distanceCm = 0.0f;
 
 // Off during setup() so the power-up baseline pings don't flash the fault code.
-bool ledLive = false;
+bool outputsLive = false;
 
-void updateLed(uint32_t now);
+// Frequency tone() is playing now; 0 = silent. tone() is only called on a change.
+uint16_t buzzerPlayingHz = 0;
 
-// delay() that keeps the LED pattern running, so the blocking sensor reads
-// never freeze or hide a flash.
+// What the LCD shows now, so a line is only rewritten when its text changes.
+char lcdShown[LCD_ROWS][LCD_LINE_BUF] = {"", ""};
+
+void updateOutputs(uint32_t now);
+
+// delay() that keeps the LED and buzzer patterns running, so the blocking
+// sensor reads never freeze a flash or the siren sweep.
 void waitMs(unsigned long ms) {
   unsigned long start = millis();
-  while (millis() - start < ms) updateLed(millis());
+  while (millis() - start < ms) updateOutputs(millis());
 }
 
 // One ping in cm; 0 on timeout (seatPingValid treats that as a failed ping).
@@ -132,23 +167,48 @@ void sendStatus() {
   Serial1.println(line);
 }
 
-void setRgb(bool red, bool green, bool blue) {
-  digitalWrite(RGB_RED_PIN, red != RGB_COMMON_ANODE ? HIGH : LOW);
-  digitalWrite(RGB_GREEN_PIN, green != RGB_COMMON_ANODE ? HIGH : LOW);
-  digitalWrite(RGB_BLUE_PIN, blue != RGB_COMMON_ANODE ? HIGH : LOW);
+// The only analogWrite in the sketch: it touches only the RGB pins, which the
+// static_asserts above keep off the tone() timer. Why these pins:
+// docs/firmware.md, "RGB LED note"; the rule: CLAUDE.md, "Hardware rules for code".
+void setRgb(RgbColor c) {
+  analogWrite(RGB_RED_PIN, rgbPinValue(c.r, RGB_COMMON_ANODE));
+  analogWrite(RGB_GREEN_PIN, rgbPinValue(c.g, RGB_COMMON_ANODE));
+  analogWrite(RGB_BLUE_PIN, rgbPinValue(c.b, RGB_COMMON_ANODE));
 }
 
-// Fault code while the seat has no baseline; alarm levels always win
-// (seatFaultActive). Level colors come in a later ticket and go in the else.
-// Called every loop pass and from waitMs() inside the blocking reads.
-void updateLed(uint32_t now) {
-  if (!ledLive) return;
-  if (seatFaultActive(seat, alertState.level)) {
-    bool on = seatFaultLedOn(now);
-    setRgb(on, false, on);  // magenta
+void setBuzzer(uint16_t hz) {
+  if (hz == buzzerPlayingHz) return;
+  if (hz == 0) {
+    noTone(BUZZER_PIN);
   } else {
-    setRgb(false, false, false);
+    tone(BUZZER_PIN, hz);
   }
+  buzzerPlayingHz = hz;
+}
+
+// LED (level color, or the seat fault code; alarm levels win) and buzzer.
+// Called every loop pass and from waitMs() inside the blocking reads, so the
+// patterns never stall. Never blocks.
+void updateOutputs(uint32_t now) {
+  if (!outputsLive) return;
+  uint32_t inLevel = levelClockElapsed(levelClock, now);
+  setRgb(alarmLedColor(seat, alertState.level, inLevel, now));
+  setBuzzer(buzzerHz(alertState.level, inLevel));
+}
+
+void showLcdLine(uint8_t row, const char *text) {
+  if (strcmp(text, lcdShown[row]) == 0) return;
+  lcd.setCursor(0, row);
+  lcd.print(text);  // always a full, space-padded line: no clear needed
+  strcpy(lcdShown[row], text);
+}
+
+void updateLcd(uint32_t now) {
+  char line[LCD_LINE_BUF];
+  lcdLine1(line, alertState.level, tempF);
+  showLcdLine(0, line);
+  lcdLine2(line, alertState.level, MINS_TO_DANGER_UNKNOWN, SIMULATE_TEMP, now);
+  showLcdLine(1, line);
 }
 
 void printBaselineFault() {
@@ -167,7 +227,10 @@ void setup() {
   pinMode(RGB_RED_PIN, OUTPUT);
   pinMode(RGB_GREEN_PIN, OUTPUT);
   pinMode(RGB_BLUE_PIN, OUTPUT);
-  setRgb(false, false, false);
+  setRgb(RGB_OFF);
+  noTone(BUZZER_PIN);
+  lcd.begin(LCD_COLS, LCD_ROWS);
+  lcd.clear();
   dht.begin();
 
   if (SIMULATE_TEMP) {
@@ -190,9 +253,10 @@ void setup() {
   readHumidity();
 
   alertInit(alertState);
+  levelClockInit(levelClock, alertState.level, millis());
   debounceInit(cancelButton, digitalRead(CANCEL_PIN) == LOW, millis());
   periodicInit(statusTimer);
-  ledLive = true;
+  outputsLive = true;
 }
 
 void loop() {
@@ -208,7 +272,9 @@ void loop() {
   in.tempF = tempF;
   in.nowMs = millis();
   alertStep(alertState, in);
-  updateLed(millis());
+  levelClockUpdate(levelClock, alertState.level, millis());
+  updateOutputs(millis());
+  updateLcd(millis());
 
   if (due) {
     sendStatus();

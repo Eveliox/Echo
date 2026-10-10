@@ -736,6 +736,260 @@ static void test_status_line_never_overflows() {
 }
 
 // ---------------------------------------------------------------------------
+// Local alarm: LED, buzzer, LCD
+// ---------------------------------------------------------------------------
+
+static bool sameColor(RgbColor a, RgbColor b) {
+  return a.r == b.r && a.g == b.g && a.b == b.b;
+}
+
+// Pins the doc's colors and siren range with literals (docs/firmware.md,
+// "Firmware behavior").
+static void test_alarm_constants_match_doc() {
+  CHECK(RGB_BLUE.r == 0 && RGB_BLUE.g == 0 && RGB_BLUE.b == 255);
+  CHECK(RGB_YELLOW.r == 255 && RGB_YELLOW.g == 120 && RGB_YELLOW.b == 0);
+  CHECK(RGB_RED.r == 255 && RGB_RED.g == 0 && RGB_RED.b == 0);
+  CHECK(CHIRP_PERIOD_MS == 5000UL);
+  CHECK(BEEP_PERIOD_MS == 1000UL);
+  CHECK(SIREN_LOW_HZ == 600 && SIREN_HIGH_HZ == 1200);
+  CHECK(LCD_COLS == 16 && LCD_ROWS == 2);
+}
+
+static void test_level_clock_restarts_on_level_change_only() {
+  LevelClock c;
+  levelClockInit(c, LEVEL_IDLE, 100);
+  CHECK(levelClockElapsed(c, 600) == 500);
+  levelClockUpdate(c, LEVEL_IDLE, 700);
+  CHECK(levelClockElapsed(c, 700) == 600);
+  levelClockUpdate(c, LEVEL_ARMED, 1000);
+  CHECK(levelClockElapsed(c, 1000) == 0);
+  CHECK(levelClockElapsed(c, 1250) == 250);
+  // Wraparound.
+  levelClockUpdate(c, LEVEL_OCCUPANT, 0xFFFFFF00UL);
+  CHECK(levelClockElapsed(c, 0x00000100UL) == 0x200UL);
+}
+
+static void test_led_idle_and_warning_solid() {
+  for (uint32_t t = 0; t < 3 * LED_BLINK_PERIOD_MS; t += 7) {
+    CHECK(sameColor(levelLedColor(LEVEL_IDLE, t), RGB_BLUE));
+    CHECK(sameColor(levelLedColor(LEVEL_WARNING, t), RGB_YELLOW));
+  }
+}
+
+// Blinking level: lit from entry for half of each period, dark the other half,
+// and never any other color.
+static void checkBlink(AlertLevel level, RgbColor color, uint32_t period) {
+  uint32_t lit = 0;
+  for (uint32_t t = 0; t < 4 * period; t++) {
+    RgbColor c = levelLedColor(level, t);
+    CHECK(sameColor(c, color) || sameColor(c, RGB_OFF));
+    if (sameColor(c, color)) lit++;
+  }
+  CHECK(lit == 2 * period);
+  CHECK(sameColor(levelLedColor(level, 0), color));
+  CHECK(sameColor(levelLedColor(level, period / 2 - 1), color));
+  CHECK(sameColor(levelLedColor(level, period / 2), RGB_OFF));
+  CHECK(sameColor(levelLedColor(level, period - 1), RGB_OFF));
+  CHECK(sameColor(levelLedColor(level, period), color));
+}
+
+static void test_led_blinks_and_flashes() {
+  checkBlink(LEVEL_ARMED, RGB_BLUE, LED_BLINK_PERIOD_MS);
+  checkBlink(LEVEL_OCCUPANT, RGB_YELLOW, LED_BLINK_PERIOD_MS);
+  checkBlink(LEVEL_EMERGENCY, RGB_RED, LED_FLASH_PERIOD_MS);
+  // "Flashing" reads faster than "blinking".
+  CHECK(LED_FLASH_PERIOD_MS < LED_BLINK_PERIOD_MS);
+}
+
+static void test_led_fault_code_replaces_idle_and_armed_only() {
+  SeatDetector noBase;
+  seatInit(noBase);
+  uint32_t base = 10 * FAULT_CYCLE_MS;
+  AlertLevel low[] = {LEVEL_IDLE, LEVEL_ARMED};
+  for (unsigned i = 0; i < 2; i++) {
+    for (uint32_t t = 0; t < FAULT_CYCLE_MS; t++) {
+      RgbColor c = alarmLedColor(noBase, low[i], t, base + t);
+      // Exactly the old fault code: magenta when seatFaultLedOn, else dark.
+      CHECK(sameColor(c, seatFaultLedOn(base + t) ? RGB_FAULT_MAGENTA : RGB_OFF));
+    }
+  }
+  AlertLevel high[] = {LEVEL_OCCUPANT, LEVEL_WARNING, LEVEL_EMERGENCY};
+  for (unsigned i = 0; i < 3; i++) {
+    for (uint32_t t = 0; t < FAULT_CYCLE_MS; t += 3) {
+      CHECK(sameColor(alarmLedColor(noBase, high[i], t, base + t), levelLedColor(high[i], t)));
+    }
+  }
+  // With a baseline the level color always shows.
+  SeatDetector ok = seatWithBaseline(EMPTY_CM);
+  for (uint32_t t = 0; t < FAULT_CYCLE_MS; t += 3) {
+    CHECK(sameColor(alarmLedColor(ok, LEVEL_IDLE, t, base + t), RGB_BLUE));
+  }
+}
+
+static void test_rgb_common_anode_inverts() {
+  CHECK(rgbPinValue(0, false) == 0);
+  CHECK(rgbPinValue(120, false) == 120);
+  CHECK(rgbPinValue(255, false) == 255);
+  CHECK(rgbPinValue(0, true) == 255);
+  CHECK(rgbPinValue(120, true) == 135);
+  CHECK(rgbPinValue(255, true) == 0);
+}
+
+static void test_buzzer_silent_when_idle_or_armed() {
+  for (uint32_t t = 0; t < 2 * CHIRP_PERIOD_MS; t++) {
+    CHECK(buzzerHz(LEVEL_IDLE, t) == 0);
+    CHECK(buzzerHz(LEVEL_ARMED, t) == 0);
+  }
+}
+
+// One short sound of `hz` at the start of every `period`, silent otherwise.
+static void checkPulses(AlertLevel level, uint16_t hz, uint32_t period, uint32_t len) {
+  CHECK(len > 0 && len < period / 2);
+  uint32_t sounding = 0;
+  for (uint32_t t = 0; t < 3 * period; t++) {
+    uint16_t f = buzzerHz(level, t);
+    CHECK(f == 0 || f == hz);
+    if (f != 0) sounding++;
+  }
+  CHECK(sounding == 3 * len);
+  CHECK(buzzerHz(level, 0) == hz);
+  CHECK(buzzerHz(level, len - 1) == hz);
+  CHECK(buzzerHz(level, len) == 0);
+  CHECK(buzzerHz(level, period - 1) == 0);
+  CHECK(buzzerHz(level, period) == hz);
+}
+
+static void test_buzzer_occupant_chirp_and_warning_beep() {
+  checkPulses(LEVEL_OCCUPANT, CHIRP_HZ, CHIRP_PERIOD_MS, CHIRP_MS);
+  checkPulses(LEVEL_WARNING, BEEP_HZ, BEEP_PERIOD_MS, BEEP_MS);
+}
+
+static void test_buzzer_emergency_siren_sweeps_up_and_down() {
+  CHECK(buzzerHz(LEVEL_EMERGENCY, 0) == 600);
+  CHECK(buzzerHz(LEVEL_EMERGENCY, SIREN_PERIOD_MS / 2) == 1200);
+  CHECK(buzzerHz(LEVEL_EMERGENCY, SIREN_PERIOD_MS) == 600);
+  uint16_t prev = buzzerHz(LEVEL_EMERGENCY, 0);
+  for (uint32_t t = 1; t < 3 * SIREN_PERIOD_MS; t++) {
+    uint16_t f = buzzerHz(LEVEL_EMERGENCY, t);
+    CHECK(f >= SIREN_LOW_HZ && f <= SIREN_HIGH_HZ);  // never silent
+    uint32_t phase = t % SIREN_PERIOD_MS;
+    if (phase == 0) {
+      CHECK(f <= prev);
+    } else if (phase <= SIREN_PERIOD_MS / 2) {
+      CHECK(f >= prev);  // rising
+    } else {
+      CHECK(f <= prev);  // falling
+    }
+    // Changes only on a step boundary, and smoothly.
+    if (t % SIREN_STEP_MS != 0) CHECK(f == prev);
+    CHECK(f - prev <= 20 && prev - f <= 20);
+    prev = f;
+  }
+}
+
+static void test_lcd_line1_level_and_temp() {
+  char line[LCD_LINE_BUF];
+  lcdLine1(line, LEVEL_WARNING, 96.4f);
+  CHECK(strcmp(line, "WARNING    96.4F") == 0);
+  lcdLine1(line, LEVEL_EMERGENCY, 104.0f);
+  CHECK(strcmp(line, "EMERGENCY 104.0F") == 0);
+  lcdLine1(line, LEVEL_IDLE, 80.0f);
+  CHECK(strcmp(line, "IDLE       80.0F") == 0);
+  lcdLine1(line, LEVEL_ARMED, 79.96f);
+  CHECK(strcmp(line, "ARMED      80.0F") == 0);
+  lcdLine1(line, LEVEL_OCCUPANT, -5.04f);
+  CHECK(strcmp(line, "OCCUPANT   -5.0F") == 0);
+  lcdLine1(line, LEVEL_OCCUPANT, NAN);
+  CHECK(strcmp(line, "OCCUPANT   --.-F") == 0);
+}
+
+// Every combination is exactly 16 characters, so overwriting needs no clear.
+static void test_lcd_lines_always_exactly_16_chars() {
+  float temps[] = {-1e9f, -100.0f, -99.9f, 0.0f, 9.9f, 99.9f, 140.0f, 999.9f, 1000.0f, NAN, INFINITY};
+  float mins[] = {NAN, -1.0f, 0.0f, 2.1f, 99.99f, 999.9f, 999.95f, 1e9f, INFINITY};
+  AlertLevel levels[] = {LEVEL_IDLE, LEVEL_ARMED, LEVEL_OCCUPANT, LEVEL_WARNING, LEVEL_EMERGENCY};
+  for (unsigned l = 0; l < 5; l++) {
+    for (unsigned i = 0; i < sizeof temps / sizeof temps[0]; i++) {
+      char buf[LCD_LINE_BUF + 4];
+      memset(buf, 'x', sizeof buf);
+      lcdLine1(buf, levels[l], temps[i]);
+      CHECK(strlen(buf) == LCD_COLS);
+      CHECK(strncmp(buf, alertLevelName(levels[l]), strlen(alertLevelName(levels[l]))) == 0);
+      for (unsigned k = LCD_LINE_BUF; k < sizeof buf; k++) CHECK(buf[k] == 'x');
+    }
+    for (unsigned i = 0; i < sizeof mins / sizeof mins[0]; i++) {
+      for (int sim = 0; sim < 2; sim++) {
+        for (uint32_t now = 0; now < SIM_LCD_PERIOD_MS; now += SIM_LCD_PERIOD_MS / 4) {
+          char buf[LCD_LINE_BUF + 4];
+          memset(buf, 'x', sizeof buf);
+          lcdLine2(buf, levels[l], mins[i], sim == 1, now);
+          CHECK(strlen(buf) == LCD_COLS);
+          for (unsigned k = LCD_LINE_BUF; k < sizeof buf; k++) CHECK(buf[k] == 'x');
+        }
+      }
+    }
+  }
+}
+
+static void test_lcd_line2_per_level() {
+  char line[LCD_LINE_BUF];
+  lcdLine2(line, LEVEL_IDLE, NAN, false, 0);
+  CHECK(strcmp(line, "CAR ON          ") == 0);
+  lcdLine2(line, LEVEL_ARMED, NAN, false, 0);
+  CHECK(strcmp(line, "SEAT EMPTY      ") == 0);
+  lcdLine2(line, LEVEL_OCCUPANT, 7.5f, false, 0);
+  CHECK(strcmp(line, "SEAT OCCUPIED   ") == 0);
+  lcdLine2(line, LEVEL_WARNING, 7.5f, false, 0);
+  CHECK(strcmp(line, "DANGER IN 7.5m  ") == 0);
+  lcdLine2(line, LEVEL_EMERGENCY, 2.1f, false, 0);
+  CHECK(strcmp(line, "DANGER IN 2.1m  ") == 0);
+  lcdLine2(line, LEVEL_EMERGENCY, 0.0f, false, 0);
+  CHECK(strcmp(line, "DANGER IN 0.0m  ") == 0);
+  lcdLine2(line, LEVEL_WARNING, 123.44f, false, 0);
+  CHECK(strcmp(line, "DANGER IN 123.4m") == 0);
+}
+
+// minsToDanger is null until its ticket lands: unknown shows a placeholder.
+static void test_lcd_line2_unknown_and_huge_minutes() {
+  char line[LCD_LINE_BUF];
+  lcdLine2(line, LEVEL_WARNING, NAN, false, 0);
+  CHECK(strcmp(line, "DANGER IN --.-m ") == 0);
+  lcdLine2(line, LEVEL_EMERGENCY, -0.5f, false, 0);
+  CHECK(strcmp(line, "DANGER IN --.-m ") == 0);
+  lcdLine2(line, LEVEL_WARNING, 999.94f, false, 0);
+  CHECK(strcmp(line, "DANGER IN 999.9m") == 0);
+  lcdLine2(line, LEVEL_WARNING, 999.95f, false, 0);
+  CHECK(strcmp(line, "DANGER IN >999m ") == 0);
+  lcdLine2(line, LEVEL_WARNING, INFINITY, false, 0);
+  CHECK(strcmp(line, "DANGER IN >999m ") == 0);
+}
+
+static void test_lcd_shows_sim_when_simulating() {
+  char line[LCD_LINE_BUF];
+  uint32_t half = SIM_LCD_PERIOD_MS / 2;
+  AlertLevel levels[] = {LEVEL_IDLE, LEVEL_ARMED, LEVEL_OCCUPANT, LEVEL_WARNING, LEVEL_EMERGENCY};
+  for (unsigned l = 0; l < 5; l++) {
+    // Simulating: SIM shows in the second half of every cycle.
+    lcdLine2(line, levels[l], 2.1f, true, 5 * SIM_LCD_PERIOD_MS + half);
+    CHECK(strcmp(line, "SIMULATED TEMP  ") == 0);
+    lcdLine2(line, levels[l], 2.1f, true, 5 * SIM_LCD_PERIOD_MS + SIM_LCD_PERIOD_MS - 1);
+    CHECK(strstr(line, "SIM") != NULL);
+    // The level text still shows in the first half.
+    lcdLine2(line, levels[l], 2.1f, true, 5 * SIM_LCD_PERIOD_MS + half - 1);
+    char plain[LCD_LINE_BUF];
+    lcdLine2(plain, levels[l], 2.1f, false, 0);
+    CHECK(strcmp(line, plain) == 0);
+    // Not simulating: never SIM.
+    for (uint32_t t = 0; t < 2 * SIM_LCD_PERIOD_MS; t += 50) {
+      lcdLine2(line, levels[l], 2.1f, false, t);
+      CHECK(strstr(line, "SIM") == NULL);
+    }
+  }
+  // SIM is on screen for a good share of the time, not a brief blip.
+  CHECK(half >= 1000UL);
+}
+
+// ---------------------------------------------------------------------------
 
 int main() {
   test_seat_constants_match_doc();
@@ -796,6 +1050,20 @@ int main() {
   test_status_line_number_rounding();
   test_status_line_rejects_non_finite_required_numbers();
   test_status_line_never_overflows();
+  test_alarm_constants_match_doc();
+  test_level_clock_restarts_on_level_change_only();
+  test_led_idle_and_warning_solid();
+  test_led_blinks_and_flashes();
+  test_led_fault_code_replaces_idle_and_armed_only();
+  test_rgb_common_anode_inverts();
+  test_buzzer_silent_when_idle_or_armed();
+  test_buzzer_occupant_chirp_and_warning_beep();
+  test_buzzer_emergency_siren_sweeps_up_and_down();
+  test_lcd_line1_level_and_temp();
+  test_lcd_lines_always_exactly_16_chars();
+  test_lcd_line2_per_level();
+  test_lcd_line2_unknown_and_huge_minutes();
+  test_lcd_shows_sim_when_simulating();
 
   printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
