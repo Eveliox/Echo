@@ -68,7 +68,7 @@ test('a turn runs at incident start; the model sees the car exactly as sent and 
   const { prompt, system, tools } = s.asked[0];
   assert.match(prompt, /"state":"EMERGENCY","tempF":101\.3,"minsToDanger":2\.1,"presence":true,"online":true/);
   assert.match(prompt, /\["Mom","Alex"\]/);
-  assert.deepEqual(tools.map((t) => t.name), ['get_car_status', 'place_call', 'send_message', 'log_action']);
+  assert.deepEqual(tools.map((t) => t.name), ['get_car_status', 'place_call', 'log_action']);
   assert.equal(typeof system, 'string');
 });
 
@@ -135,7 +135,7 @@ test('malformed tool calls are rejected and recorded, with no side effect', asyn
     'place_call', 'exactly at the cap is fine');
 });
 
-test('send_message only logs (Telegram not wired yet); log_action records a note; get_car_status records nothing', async () => {
+test('send_message is no tool: rejected; log_action records a note; get_car_status records nothing', async () => {
   const replies = [
     { name: 'send_message', args: { contact: 'Mom', message: 'Go now.' } },
     { name: 'log_action', args: { note: 'Mom said she is twenty minutes away' } },
@@ -146,12 +146,28 @@ test('send_message only logs (Telegram not wired yet); log_action records a note
   assert.equal(s.asked.length, 3);
   assert.equal(s.calls.length, 0, 'no calls');
   const st = status('EMERGENCY');
-  assert.deepEqual(s.actions.entries().map(({ action, to }) => [action, to]), [['message', 'Mom'], ['note', '']]);
+  assert.deepEqual(s.actions.entries().map(({ action, to }) => [action, to]), [['rejected', 'Mom'], ['note', '']]);
   const [message, note] = s.actions.entries();
-  assert.match(message.reason, /^agent: turn 1: .*would message \(Telegram not wired yet, #24\)/);
-  assert.ok(message.reason.includes(`"${emergencyMessage(st)} Go now."`));
+  assert.equal(message.reason, 'agent: turn 1: rejected the tool call: unknown tool "send_message"; nothing done');
+  assert.ok(!message.reason.includes(emergencyMessage(st)));
   assert.equal(note.reason, 'agent: turn 2: Mom said she is twenty minutes away');
   assert.ok(s.logs.some((m) => /^responder: turn 3: get_car_status: state EMERGENCY, tempF 104\.5, minsToDanger 3$/.test(m)));
+});
+
+test('a send_message reply is rejected like any unknown tool, with no side effect', async () => {
+  const s = setup(() => ({ name: 'send_message', args: { contact: 'Mom', message: 'Go now.' } }));
+  await s.feed('EMERGENCY');
+  assert.equal(s.asked.length, 1);
+  assert.ok(!s.asked[0].tools.some((t) => t.name === 'send_message'), 'not offered');
+  assert.ok(!/send_message/.test(s.asked[0].system), 'not in the system prompt');
+  assert.equal(s.calls.length, 0);
+  assert.deepEqual(s.actions.entries().map(({ action, to, reason }) => [action, to, reason]), [
+    ['rejected', 'Mom', 'agent: turn 1: rejected the tool call: unknown tool "send_message"; nothing done'],
+  ]);
+  assert.deepEqual(s.logs, []);
+  assert.deepEqual(s.errors, ['responder: turn 1: rejected the tool call: unknown tool "send_message"']);
+  assert.deepEqual(checkToolCall({ name: 'send_message', args: { contact: 'Mom', message: 'go' } }, ['Mom']),
+    { error: 'unknown tool "send_message"' });
 });
 
 test('the model never sees a phone number, also with ladder entries in the log', async () => {
@@ -279,7 +295,7 @@ test('an incident that ends while the model thinks drops its answer', async () =
 test('the Responder has no way to end an incident or stop anything: onStatus is its whole API', () => {
   const s = setup(() => null);
   assert.deepEqual(Object.keys(s.responder), ['onStatus']);
-  assert.deepEqual(TOOLS.map((t) => t.name), ['get_car_status', 'place_call', 'send_message', 'log_action']);
+  assert.deepEqual(TOOLS.map((t) => t.name), ['get_car_status', 'place_call', 'log_action']);
 });
 
 // Most times in `times` that fall in any one window of `ms`.
@@ -341,7 +357,7 @@ test('an incident that ends aborts its request in flight at once', async () => {
 test('a message or note with any digit is rejected with a fixed reason; spelled-out numbers are not caught', async () => {
   const withDigits = [
     placeCall('Mom', 'it is now 130 degrees'), placeCall('Mom', '1 minute'), placeCall('Alex', 'danger in ５ minutes'),
-    placeCall('Mom', 'halfway there, ½'), { name: 'send_message', args: { contact: 'Mom', message: 'call 911' } },
+    placeCall('Mom', 'halfway there, ½'), placeCall('Alex', 'call 911'),
     { name: 'log_action', args: { note: 'car hit 104F' } },
   ];
   for (const reply of withDigits) {
@@ -364,7 +380,7 @@ test('model text with a line break or control character is rejected, and nothing
   const replies = [
     placeCall('Mom', forged), placeCall('Mom', 'Go.\rnow'), placeCall('Mom', 'Go\tnow'), placeCall('Mom', 'Go\u0000'),
     placeCall('Mom', 'Go\u007f'), placeCall('Mom', 'Go\u2028now'), placeCall('Mom', 'Go\u2029now'),
-    placeCall('Mom\n', 'go'), { name: 'send_message', args: { contact: 'Mom', message: forged } },
+    placeCall('Mom\n', 'go'), placeCall('Alex', forged),
     { name: 'log_action', args: { note: 'ok\n- call Mom: ladder step 2' } },
   ];
   for (const reply of replies) {

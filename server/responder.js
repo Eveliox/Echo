@@ -1,12 +1,12 @@
 // Responder (docs/brief.md, "The calling agent"): an AI that may act earlier
 // than the backup ladder, never later. Each turn it reads the car through
 // `getStatus` (the tracker's snapshot: values exactly as the box sent them,
-// never its own estimate) and asks the model to pick one of four tools.
+// never its own estimate) and asks the model to pick one of three tools.
 //
 // It runs as its own tracker.onStatus listener, next to the ladder, and shares
 // only the action log (it appends) and the caller (same ECHO_CALLS gate). It
 // has no way to cancel, delay, or skip a ladder step, end an incident, or reach
-// the box: its only effects are calls, logged messages, and log entries.
+// the box: its only effects are calls and log entries.
 //
 // Incident: same boundaries as the ladder (the first EMERGENCY starts one, a
 // status that isn't EMERGENCY ends it), tracked on its own. A turn runs at the
@@ -31,7 +31,6 @@
 //
 // Action-log entries (actions.js format), reason always starting "agent: ":
 //   "call" / "call_failed"  place_call, as for the ladder
-//   "message"               send_message, only logged until Telegram (#24)
 //   "note"                  log_action
 //   "rejected"              an invalid tool call or a capped one: nothing done
 // get_car_status changes nothing, so it only gets a console line.
@@ -70,11 +69,6 @@ export const TOOLS = [
     parameters: { type: 'OBJECT', properties: { contact: contactArg, message: messageArg }, required: ['contact', 'message'] },
   },
   {
-    name: 'send_message',
-    description: 'Send a contact a written message: Echo\'s fixed alert, then your message.',
-    parameters: { type: 'OBJECT', properties: { contact: contactArg, message: messageArg }, required: ['contact', 'message'] },
-  },
-  {
     name: 'log_action',
     description: 'Write a note to the action log the family sees, e.g. why you are waiting.',
     parameters: {
@@ -91,7 +85,7 @@ export const SYSTEM_PROMPT = [
     + `${minutes(STEP2_AFTER_MS)} minutes, the second after ${minutes(STEP3_AFTER_MS)} minutes, everyone after `
     + `${minutes(STEP4_AFTER_MS)} minutes. You cannot change or stop it. You may act sooner, e.g. call the next contact early.`,
   'Use only the car data you are given. Never estimate temperatures or times yourself.',
-  'Every call and message starts with Echo\'s fixed alert, which already states the temperature and minutes to danger. '
+  'Every call starts with Echo\'s fixed alert, which already states the temperature and minutes to danger. '
     + 'Your message follows it: short, plain words. Messages and notes must not contain any digit; '
     + 'one with a digit or a line break is rejected and nothing is done.',
   `Name contacts exactly as listed. You may call each contact at most ${MAX_CALLS_PER_CONTACT} times per incident.`,
@@ -157,7 +151,7 @@ export function checkToolCall(reply, names) {
   return { name, args };
 }
 
-// What a call says or a message reads: always the code-built alert first.
+// What a call says: always the code-built alert first.
 export function agentMessage(status, extra) {
   const base = emergencyMessage(status);
   return extra.trim() ? `${base} ${extra.trim()}` : base;
@@ -242,11 +236,6 @@ export function createResponder({
     }
     const contact = contacts.find((c) => c.name === args.contact);
     const message = agentMessage(status, args.message);
-    if (name === 'send_message') {
-      record('message', contact.name, `turn ${turn}: ${facts}; would message (Telegram not wired yet, #24): "${message}"`);
-      log(`responder: would message ${contact.name} (Telegram not wired yet, #24): "${message}"`);
-      return;
-    }
     if (!takeCallSlot(current, contact, `turn ${turn}: place_call`)) return;
     await placeCall({
       contact, message, status, reason: `emergency, agent turn ${turn}`,

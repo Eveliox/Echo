@@ -21,7 +21,7 @@ function fakeFetch(answer) {
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
 const functionCall = (name, args) => json({ candidates: [{ content: { parts: [{ functionCall: { name, args } }] } }] });
 
-test('sends one generateContent POST with the key in the header only and the four tools', async () => {
+test('sends one generateContent POST with the key in the header only and the three tools', async () => {
   const { requests, fetchFn } = fakeFetch(() => functionCall('log_action', { note: 'hi' }));
   const ask = geminiModel({ apiKey: KEY, model: 'gemini-test' }, { fetchFn });
   assert.deepEqual(await ask(input), { name: 'log_action', args: { note: 'hi' } });
@@ -33,7 +33,7 @@ test('sends one generateContent POST with the key in the header only and the fou
   assert.equal(init.headers['x-goog-api-key'], KEY);
   assert.ok(init.signal instanceof AbortSignal);
   assert.deepEqual(body.tools[0].functionDeclarations.map((t) => t.name),
-    ['get_car_status', 'place_call', 'send_message', 'log_action']);
+    ['get_car_status', 'place_call', 'log_action']);
   assert.deepEqual(body.toolConfig, { functionCallingConfig: { mode: 'ANY' } });
   assert.equal(body.systemInstruction.parts[0].text, SYSTEM_PROMPT);
   assert.equal(body.contents[0].parts[0].text, 'Car: {}');

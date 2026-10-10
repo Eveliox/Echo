@@ -6,7 +6,7 @@
 //   "call_failed"  a call could not be placed (Twilio error or missing settings)
 //   "skip"         a step was not attempted for a contact (reason says why)
 // The Responder (responder.js) adds its own entries, each reason starting
-// "agent: ": "call", "call_failed", "message", "note", and "rejected".
+// "agent: ": "call", "call_failed", "note", and "rejected".
 
 // Hard cap so memory stays bounded; the oldest entries drop first.
 export const ACTIONS_MAX_ENTRIES = 200;

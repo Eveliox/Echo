@@ -18,7 +18,7 @@ export function readGeminiConfig(env = process.env) {
 // What the server prints at startup about the Responder. Never the key.
 export function responderStartupMessage({ apiKey, model }) {
   if (!apiKey) return 'responder: off (no GEMINI_API_KEY)';
-  return `responder: on (Gemini ${model}; it can only add calls and messages, the backup ladder keeps its schedule)`;
+  return `responder: on (Gemini ${model}; it can only add calls and notes, the backup ladder keeps its schedule)`;
 }
 
 // Returns model({ system, prompt, tools, signal }) for createResponder: one

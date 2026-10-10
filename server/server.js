@@ -9,7 +9,7 @@
 // Each new status also feeds the backup ladder (ladder.js). Calls only dial
 // with ECHO_CALLS=live; Twilio and contacts load from server/.env.
 // With GEMINI_API_KEY in server/.env, the Responder (responder.js) also gets
-// each status as its own listener; it can only add calls, messages, and notes.
+// each status as its own listener; it can only add calls and notes.
 // ECHO_PORT overrides the port (the smoke check runs its own server on a free one).
 // Each accepted status is also logged to a file in server/logs/, or ECHO_LOG_DIR.
 // With ECHO_BOX_TOKEN set in server/.env, POST /status needs it in the
