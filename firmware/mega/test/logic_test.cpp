@@ -7,6 +7,10 @@
 #include <string.h>
 
 #include "logic.h"
+// The ESP8266's line filter is tested here too, so the logic-test row covers
+// it; its header is plain C++ like logic.h.
+#include "../../esp/line_reader.h"
+#include "../../esp/server_url.h"
 
 static int g_checks = 0;
 static int g_failures = 0;
@@ -990,6 +994,228 @@ static void test_lcd_shows_sim_when_simulating() {
 }
 
 // ---------------------------------------------------------------------------
+// ESP8266 line reader (firmware/esp/line_reader.h)
+// ---------------------------------------------------------------------------
+
+// Feeds `bytes` (len bytes, may hold NULs) and counts completed kept lines;
+// `last` gets a copy of the last one.
+static int feedBytes(LineReader &r, const char *bytes, size_t len, char *last,
+                     size_t lastCap) {
+  int kept = 0;
+  for (size_t i = 0; i < len; i++) {
+    if (lineReaderFeed(r, bytes[i])) {
+      kept++;
+      snprintf(last, lastCap, "%s", r.buf);
+    }
+  }
+  return kept;
+}
+
+static int feedStr(LineReader &r, const char *s, char *last, size_t lastCap) {
+  return feedBytes(r, s, strlen(s), last, lastCap);
+}
+
+static void test_line_reader_keeps_json_line_without_crlf() {
+  LineReader r;
+  lineReaderInit(r);
+  char last[LINE_READER_MAX_LEN + 1] = "";
+  const char *line = "{\"state\":\"ARMED\",\"tempF\":80.0}";
+  char withCrlf[64];
+  snprintf(withCrlf, sizeof withCrlf, "%s\r\n", line);
+  CHECK(feedStr(r, withCrlf, last, sizeof last) == 1);
+  CHECK(strcmp(last, line) == 0);
+  // Bare '\n' works too.
+  CHECK(feedStr(r, "{\"a\":1}\n", last, sizeof last) == 1);
+  CHECK(strcmp(last, "{\"a\":1}") == 0);
+}
+
+static void test_line_reader_returns_true_only_on_newline() {
+  LineReader r;
+  lineReaderInit(r);
+  const char *s = "{\"a\":1}";
+  for (size_t i = 0; i < strlen(s); i++) CHECK(!lineReaderFeed(r, s[i]));
+  CHECK(!lineReaderFeed(r, '\r'));
+  CHECK(lineReaderFeed(r, '\n'));
+}
+
+static void test_line_reader_drops_lines_not_starting_with_brace() {
+  LineReader r;
+  lineReaderInit(r);
+  char last[LINE_READER_MAX_LEN + 1] = "";
+  CHECK(feedStr(r, "# seat baseline failed: check the ultrasonic\r\n", last, sizeof last) == 0);
+  CHECK(feedStr(r, " {\"a\":1}\n", last, sizeof last) == 0);
+  CHECK(feedStr(r, "\n\r\n", last, sizeof last) == 0);
+  CHECK(feedStr(r, "x{\"a\":1}\n", last, sizeof last) == 0);
+  // ESP boot noise: 74880-baud garbage read at 115200, then a real line.
+  const char noise[] = {(char)0xF0, (char)0x8C, 'r', (char)0xE2, '\n'};
+  CHECK(feedBytes(r, noise, sizeof noise, last, sizeof last) == 0);
+  CHECK(feedStr(r, "{\"a\":2}\n", last, sizeof last) == 1);
+  CHECK(strcmp(last, "{\"a\":2}") == 0);
+}
+
+static void test_line_reader_drops_partial_lines() {
+  LineReader r;
+  lineReaderInit(r);
+  char last[LINE_READER_MAX_LEN + 1] = "";
+  // Joined halfway through a line: the tail is dropped, the next line kept.
+  CHECK(feedStr(r, "F\":96.4,\"humidity\":41}\r\n{\"a\":3}\r\n", last, sizeof last) == 1);
+  CHECK(strcmp(last, "{\"a\":3}") == 0);
+  // Cut off before its closing brace.
+  CHECK(feedStr(r, "{\"state\":\"WARN\n", last, sizeof last) == 0);
+  CHECK(feedStr(r, "{\n", last, sizeof last) == 0);
+}
+
+static void test_line_reader_drops_nul_line() {
+  LineReader r;
+  lineReaderInit(r);
+  char last[LINE_READER_MAX_LEN + 1] = "";
+  const char withNul[] = {'{', '"', 'a', '\0', '}', '\n'};
+  CHECK(feedBytes(r, withNul, sizeof withNul, last, sizeof last) == 0);
+  CHECK(feedStr(r, "{\"a\":4}\n", last, sizeof last) == 1);
+}
+
+static void test_line_reader_length_cap() {
+  char last[LINE_READER_MAX_LEN + 1] = "";
+  char line[LINE_READER_MAX_LEN + 8];
+
+  // Exactly the cap: kept whole.
+  LineReader r;
+  lineReaderInit(r);
+  line[0] = '{';
+  for (uint16_t i = 1; i < LINE_READER_MAX_LEN - 1; i++) line[i] = 'a';
+  line[LINE_READER_MAX_LEN - 1] = '}';
+  line[LINE_READER_MAX_LEN] = '\n';
+  line[LINE_READER_MAX_LEN + 1] = '\0';
+  CHECK(feedStr(r, line, last, sizeof last) == 1);
+  CHECK(strlen(last) == LINE_READER_MAX_LEN);
+
+  // One over the cap: dropped whole, never forwarded cut short, and the
+  // reader recovers on the next line.
+  lineReaderInit(r);
+  line[0] = '{';
+  for (uint16_t i = 1; i < LINE_READER_MAX_LEN; i++) line[i] = 'a';
+  line[LINE_READER_MAX_LEN] = '}';
+  line[LINE_READER_MAX_LEN + 1] = '\n';
+  line[LINE_READER_MAX_LEN + 2] = '\0';
+  last[0] = '\0';
+  CHECK(feedStr(r, line, last, sizeof last) == 0);
+  CHECK(last[0] == '\0');
+  CHECK(feedStr(r, "{\"a\":5}\n", last, sizeof last) == 1);
+  CHECK(strcmp(last, "{\"a\":5}") == 0);
+
+  // A much longer run of bytes (no newline for a while) stays in bounds.
+  lineReaderInit(r);
+  for (int i = 0; i < 5000; i++) CHECK(!lineReaderFeed(r, i == 0 ? '{' : 'z'));
+  CHECK(r.len <= LINE_READER_MAX_LEN);
+  CHECK(!lineReaderFeed(r, '\n'));
+}
+
+static void test_line_reader_fits_mega_status_line() {
+  // The longest line the Mega can send must fit under the ESP's cap.
+  CHECK(STATUS_LINE_MAX - 1 <= LINE_READER_MAX_LEN);
+}
+
+// Feeds `s` as one drain of the serial backlog.
+static void drain(LineReader &r, NewestLine &n, const char *s) {
+  for (size_t i = 0; s[i] != '\0'; i++) newestLineFeed(r, n, s[i]);
+}
+
+static void test_newest_line_starts_empty() {
+  NewestLine n;
+  newestLineInit(n);
+  CHECK(!n.ready);
+}
+
+static void test_newest_line_several_lines_keeps_only_last() {
+  LineReader r;
+  NewestLine n;
+  lineReaderInit(r);
+  newestLineInit(n);
+  drain(r, n, "{\"a\":1}\r\n{\"a\":2}\r\n{\"a\":3}\r\n");
+  CHECK(n.ready);
+  CHECK(strcmp(n.buf, "{\"a\":3}") == 0);
+}
+
+static void test_newest_line_trailing_partial_kept_for_next_drain() {
+  LineReader r;
+  NewestLine n;
+  lineReaderInit(r);
+  newestLineInit(n);
+  drain(r, n, "{\"a\":1}\r\n{\"a\":");
+  CHECK(n.ready);
+  CHECK(strcmp(n.buf, "{\"a\":1}") == 0);
+  n.ready = false;  // forwarded
+  drain(r, n, "2}\r\n");
+  CHECK(n.ready);
+  CHECK(strcmp(n.buf, "{\"a\":2}") == 0);
+}
+
+static void test_newest_line_bad_lines_never_replace_good() {
+  LineReader r;
+  NewestLine n;
+  lineReaderInit(r);
+  newestLineInit(n);
+  // A bad line followed by a good one: the good one wins.
+  drain(r, n, "# boot noise\r\n{\"a\":1}\r\n");
+  CHECK(n.ready);
+  CHECK(strcmp(n.buf, "{\"a\":1}") == 0);
+  // A good line followed by bad ones: the good one is still there.
+  newestLineInit(n);
+  drain(r, n, "{\"a\":2}\r\n# log\r\n{\"cut\r\n");
+  CHECK(n.ready);
+  CHECK(strcmp(n.buf, "{\"a\":2}") == 0);
+  // Only bad lines: nothing to forward.
+  newestLineInit(n);
+  drain(r, n, "# log\r\nnoise\r\n");
+  CHECK(!n.ready);
+}
+
+static void test_newest_line_full_length_copied_whole() {
+  LineReader r;
+  NewestLine n;
+  lineReaderInit(r);
+  newestLineInit(n);
+  char line[LINE_READER_MAX_LEN + 2];
+  line[0] = '{';
+  for (uint16_t i = 1; i < LINE_READER_MAX_LEN - 1; i++) line[i] = 'a';
+  line[LINE_READER_MAX_LEN - 1] = '}';
+  line[LINE_READER_MAX_LEN] = '\n';
+  line[LINE_READER_MAX_LEN + 1] = '\0';
+  drain(r, n, line);
+  CHECK(n.ready);
+  CHECK(strlen(n.buf) == LINE_READER_MAX_LEN);
+  CHECK(strncmp(n.buf, line, LINE_READER_MAX_LEN) == 0);
+}
+
+// ---------------------------------------------------------------------------
+// ESP8266 server URL check (firmware/esp/server_url.h)
+// ---------------------------------------------------------------------------
+
+static void test_server_url_accepts_ipv4_http() {
+  CHECK(serverUrlIsIpv4Http("http://172.20.10.2:3000/status"));
+  CHECK(serverUrlIsIpv4Http("http://192.168.1.10/status"));
+  CHECK(serverUrlIsIpv4Http("http://10.0.0.1:3000"));
+  CHECK(serverUrlIsIpv4Http("http://0.0.0.0"));
+  CHECK(serverUrlIsIpv4Http("http://255.255.255.255:80/status"));
+}
+
+static void test_server_url_rejects_hostnames_and_bad_urls() {
+  CHECK(!serverUrlIsIpv4Http("http://my-laptop.local:3000/status"));
+  CHECK(!serverUrlIsIpv4Http("http://localhost:3000/status"));
+  CHECK(!serverUrlIsIpv4Http("http://LAPTOP_IP:PORT/status"));
+  CHECK(!serverUrlIsIpv4Http("http://1.2.3.4.example.com/status"));
+  CHECK(!serverUrlIsIpv4Http("http://172.20.10/status"));
+  CHECK(!serverUrlIsIpv4Http("http://256.1.1.1/status"));
+  CHECK(!serverUrlIsIpv4Http("http://1.2.3.0004/status"));
+  CHECK(!serverUrlIsIpv4Http("http://1..2.3/status"));
+  CHECK(!serverUrlIsIpv4Http("https://172.20.10.2:3000/status"));
+  CHECK(!serverUrlIsIpv4Http("172.20.10.2:3000/status"));
+  CHECK(!serverUrlIsIpv4Http("http://"));
+  CHECK(!serverUrlIsIpv4Http(""));
+  CHECK(!serverUrlIsIpv4Http(0));
+}
+
+// ---------------------------------------------------------------------------
 
 int main() {
   test_seat_constants_match_doc();
@@ -1064,6 +1290,20 @@ int main() {
   test_lcd_line2_per_level();
   test_lcd_line2_unknown_and_huge_minutes();
   test_lcd_shows_sim_when_simulating();
+  test_line_reader_keeps_json_line_without_crlf();
+  test_line_reader_returns_true_only_on_newline();
+  test_line_reader_drops_lines_not_starting_with_brace();
+  test_line_reader_drops_partial_lines();
+  test_line_reader_drops_nul_line();
+  test_line_reader_length_cap();
+  test_line_reader_fits_mega_status_line();
+  test_newest_line_starts_empty();
+  test_newest_line_several_lines_keeps_only_last();
+  test_newest_line_trailing_partial_kept_for_next_drain();
+  test_newest_line_bad_lines_never_replace_good();
+  test_newest_line_full_length_copied_whole();
+  test_server_url_accepts_ipv4_http();
+  test_server_url_rejects_hostnames_and_bad_urls();
 
   printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
