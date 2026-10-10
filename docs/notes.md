@@ -169,3 +169,8 @@ ElevenLabs voice (#19), full steps in `server/voice/agent.md`:
 - Replaced Insights’ temporary text wordmark with the original echo-logo.png; the asset also remains on every page and in the centered dark launch cover. Launch background stays explicitly dark to match native splash configuration.
 - Emergency Car retains distinct deep red with explicit cream text/chart labels/buttons and navigation; emergency banners on other tabs retain their dark background and light copy. Offline readings remain visibly muted, with increased opacity for readability on the warm background. No polling, action, dialer, sensor, or data behavior changed.
 - Checks: all21 app tests, Expo lint, iOS/Android exports, and whitespace pass. Plain JS/no tsconfig, so typecheck not applicable. Expo reloaded for phone review; visual confirmation of all tabs and emergency contrast pending. No new dependencies.
+
+## 2026-10-10 (gradient logo introduction)
+
+- Eve requested the warm gradient behind the pre-reveal Echo logo. LaunchCover now reuses WarmBackground, retaining the original centered logo, pause/fade, Reduce Motion behavior, and emergency bypass. Status bar uses dark content during normal launch. Native splash configuration uses matching peach as its solid background; the full gradient is in the JavaScript introduction (Expo Go owns its earlier loader).
+- Validation: app21 tests, Expo lint, and whitespace checks pass. No timing or data changes. Expo reloaded for visual verification.

@@ -221,7 +221,7 @@ Proven by: server, manual check
 ### 25. dashboard: match the app's design (fonts and level colors)
 Owner: David (sw) · Size: S · Depends on: none · Issue: #25
 - [ ] Doto / Manrope / Outfit from font files the server serves itself (woff2 + OFL license in `server/dashboard/fonts/`, allow-listed, CSP `font-src 'self'`, no CDN)
-- [ ] The design's colors: dark shell, level colors from the box's LED; red only at EMERGENCY, other levels as a glow behind the number
+- [ ] The app's warm style (colors and gradients from `app/src/ui.js`, Echo logo in the header); EMERGENCY stays deep red as on the app's red Car screen (updated 2026-10-10: replaces the dark shell)
 - [ ] Behavior unchanged (read-only, strict CSP, values as sent); existing dashboard tests unchanged; new tests for the font routes and the level-to-color map
 - [ ] Manual: replay as in #11 and compare with the Claude Design canvas
 Proven by: server, manual check
