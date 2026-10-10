@@ -18,6 +18,18 @@ export function levelStyle(state) {
   return Object.hasOwn(LEVELS, state) ? { ...LEVELS[state] } : { color: 'none', blink: false };
 }
 
+// The page's look, matching the app's Car screen (app/App.js): EMERGENCY with
+// the box online turns the whole page deep red; the box offline, the server
+// unreachable, or no level yet is muted; every other level is the warm style
+// with its own accent. style.css has one .theme-<token> rule per token.
+const THEMES = {
+  IDLE: 'calm', ARMED: 'calm', OCCUPANT: 'caution', WARNING: 'caution', EMERGENCY: 'emergency',
+};
+
+export function pageTheme(state, online) {
+  return online === true && Object.hasOwn(THEMES, state) ? THEMES[state] : 'muted';
+}
+
 const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
 
 // A number exactly as the box sent it; anything else (null, missing) is "--".
@@ -50,14 +62,16 @@ export function statusView(snapshot, reachable = true) {
   if (!reachable) connection = 'server unreachable';
   else if (snapshot?.online === true) connection = 'online';
   else connection = 'offline';
+  const online = reachable && snapshot?.online === true;
   return {
     level: state,
     ...levelStyle(state),
+    theme: pageTheme(state, online),
     tempF: formatValue(status?.tempF),
     minsToDanger: formatValue(status?.minsToDanger),
     seat: seatText(status?.presence),
     connection,
-    online: reachable && snapshot?.online === true,
+    online,
     lastSeen: isNumber(snapshot?.lastSeen) ? clockTime(snapshot.lastSeen) : MISSING,
   };
 }

@@ -7,15 +7,15 @@
 <link rel="stylesheet" href="/dashboard/style.css">
 <script type="module" src="/dashboard/app.js"></script>
 </head>
-<body>
+<body id="page" class="theme-muted">
 <main>
   <header>
-    <h1>Echo</h1>
+    <h1 class="logo">Echo</h1>
     <p id="connection" class="connection offline">connecting…</p>
   </header>
 
   <section id="level" class="level level-none" aria-live="polite">
-    <span class="label">Alert level</span>
+    <span class="label"><span class="dot"></span>Alert level</span>
     <span id="level-text" class="big">--</span>
   </section>
 

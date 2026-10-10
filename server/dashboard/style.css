@@ -1,61 +1,119 @@
+/* The app's look (app/src/ui.js, app/App.js), with the app's own font files.
+   Each file is one static instance (Doto is the Black cut), used as-is like
+   the app does; the weight ranges stop the browser from faking bold. */
+@font-face { font-family: "Doto"; src: url("/dashboard/fonts/Doto.ttf") format("truetype"); font-weight: 900; font-display: swap; }
+@font-face { font-family: "Manrope"; src: url("/dashboard/fonts/manrope.ttf") format("truetype"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Outfit"; src: url("/dashboard/fonts/outfit.ttf") format("truetype"); font-weight: 100 900; font-display: swap; }
+
 :root {
-  color-scheme: dark;
-  --bg: #111;
-  --fg: #f4f4f4;
-  --muted: #a8a8a8;
-  --blue: #2557ff;
-  --yellow: #ffb000;
-  --red: #e01010;
+  color-scheme: light;
+  /* app/src/ui.js palette */
+  --palette-ground: #F5E5DB;
+  --palette-surface: #FFF3CD30;
+  --palette-raised: #FFF3CD55;
+  --palette-text: #352315;
+  --palette-muted: #715037;
+  --palette-line: #35231520;
+  --palette-brand: #873F25;
+  /* app/src/model.js COLORS (halo) and the Car screen's status label colors (app/App.js) */
+  --colors-calm: #5B9CFF;
+  --colors-caution: #FFB547;
+  --colors-offline: #6E6468;
+  --label-calm: #365B7E;
+  --label-caution: #805016;
+  /* app/App.js red Car screen: styles.emergency, styles.onRed, styles.chartCard, chart line */
+  --emergency-ground: #B62432;
+  --emergency-on-red: #FFF5E9;
+  --emergency-card: #510B1728;
+  --emergency-card-line: #FFFFFF20;
+  --emergency-chart: #F6F1F2;
+  /* app/src/ui.js WarmBackground: heatEmber over heatSun over heatSky, same boxes on a 390x850 view */
+  --heat-ember: radial-gradient(ellipse 51.3% 35.3% at 55.1% 83.5%, #FF642CD9 0%, #FF642C00 100%);
+  --heat-sun: radial-gradient(ellipse 85.9% 28.2% at 50% 52.9%, #FFEE81 0%, #FFE678CC 48%, #FFE67800 100%);
+  --heat-sky: linear-gradient(to bottom, #F5E5DB 0%, #FFC6A6 30%, #FFDD75 57%, #FF8C43 100%);
 }
 
 * { box-sizing: border-box; }
 
 body {
+  --fg: var(--palette-text);
+  --muted: var(--palette-muted);
+  --panel: var(--palette-surface);
+  --line: var(--palette-line);
+  --accent: var(--palette-muted);
+  --halo: var(--colors-offline);
+  --curve: var(--palette-text);
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
+  background-color: var(--palette-ground);
+  background-image: var(--heat-ember), var(--heat-sun), var(--heat-sky);
+  background-attachment: fixed;
   color: var(--fg);
-  font: 18px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 16px/1.5 "Manrope", system-ui, sans-serif;
 }
 
-main { max-width: 720px; margin: 0 auto; padding: 16px; }
+/* Level to look: pageTheme() in view.js picks one of these. */
+.theme-calm { --accent: var(--label-calm); --halo: var(--colors-calm); }
+.theme-caution { --accent: var(--label-caution); --halo: var(--colors-caution); }
+.theme-muted { --accent: var(--palette-muted); --halo: var(--colors-offline); }
+.theme-emergency {
+  --fg: var(--emergency-on-red);
+  --muted: var(--emergency-on-red);
+  --panel: var(--emergency-card);
+  --line: var(--emergency-card-line);
+  --accent: var(--emergency-on-red);
+  --halo: transparent;
+  --curve: var(--emergency-chart);
+  background: var(--emergency-ground);
+  color-scheme: dark;
+}
 
-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-h1 { margin: 0; font-size: 1.6rem; }
-h2 { margin: 0 0 8px; font-size: 1.1rem; color: var(--muted); font-weight: 600; }
+main { max-width: 720px; margin: 0 auto; padding: 18px 22px 24px; }
 
-.label { display: block; font-size: 0.9rem; color: var(--muted); }
-.big { display: block; font-size: 2.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.logo {
+  margin: 0; width: 92px; height: 34px;
+  background: url("/dashboard/echo-logo.png") left center / contain no-repeat;
+  color: transparent; overflow: hidden; white-space: nowrap; text-indent: 100%;
+}
+h2 { margin: 0 0 10px; font: 400 0.75rem "Outfit", system-ui, sans-serif; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
 
-.connection { margin: 0; font-weight: 700; padding: 4px 10px; border-radius: 999px; }
-.connection.online { background: #1d6b2e; }
-.connection.offline { background: #555; }
-.connection.unreachable { background: var(--red); }
+.label { display: flex; align-items: center; gap: 7px; font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.big { display: block; font: 900 3rem/1.1 "Doto", system-ui, sans-serif; letter-spacing: -0.04em; color: var(--fg); font-variant-numeric: tabular-nums; }
+#seat { font: 400 2rem/1.5 "Outfit", system-ui, sans-serif; letter-spacing: 0; }
 
-.level { margin: 16px 0; padding: 16px; border-radius: 12px; background: #333; }
-.level .label { color: inherit; opacity: 0.85; }
-.level .big { font-size: 3.2rem; letter-spacing: 0.04em; }
-.level-blue { background: var(--blue); color: #fff; }
-.level-yellow { background: var(--yellow); color: #111; }
-.level-red { background: var(--red); color: #fff; }
-.level.stale { opacity: 0.6; }
+.connection { margin: 0; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--palette-raised); font: 400 0.8rem "Outfit", system-ui, sans-serif; letter-spacing: 0.06em; color: var(--fg); }
+.connection.offline { color: var(--muted); background: var(--panel); }
+.connection.unreachable { color: var(--palette-brand); background: var(--panel); }
+.theme-emergency .connection { color: var(--emergency-on-red); background: var(--panel); }
 
-.blink { animation: blink 1s ease-in-out infinite alternate; }
-@keyframes blink { from { filter: brightness(1); } to { filter: brightness(0.7); } }
-@media (prefers-reduced-motion: reduce) { .blink { animation: none; } }
+.level {
+  margin: 18px 0; padding: 28px 16px; text-align: center;
+  border: 1px solid var(--line); border-radius: 22px;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--halo) 15%, transparent), transparent), var(--panel);
+}
+.level .label { justify-content: center; color: var(--accent); }
+.level .big { font-family: "Outfit", system-ui, sans-serif; font-weight: 400; font-size: 3.2rem; letter-spacing: 0.04em; color: var(--accent); }
+.level.stale .big, .theme-muted .readings .big { opacity: 0.65; }
+
+.dot { width: 6px; height: 6px; border-radius: 3px; background: var(--accent); }
+.blink .dot { animation: blink 1.2s ease-in-out infinite alternate; }
+@keyframes blink { from { opacity: 1; } to { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .blink .dot { animation: none; } }
 
 .readings { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
-.reading { background: #1e1e1e; border-radius: 12px; padding: 12px 16px; }
+.reading, .curve, .feed { background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 14px 18px; }
 
-.curve, .feed { margin-top: 20px; background: #1e1e1e; border-radius: 12px; padding: 12px 16px; }
-#curve { display: block; width: 100%; height: 160px; background: #161616; border-radius: 8px; }
-#curve-line { fill: none; stroke: var(--yellow); stroke-width: 3; vector-effect: non-scaling-stroke; }
-.axis { display: flex; justify-content: space-between; margin: 6px 0 0; color: var(--muted); font-size: 0.9rem; }
+.curve, .feed { margin-top: 18px; }
+#curve { display: block; width: 100%; height: 160px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+#curve-line { fill: none; stroke: var(--curve); stroke-width: 2.25; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.axis { display: flex; justify-content: space-between; margin: 6px 0 0; color: var(--muted); font-size: 0.75rem; }
 
 #feed { list-style: none; margin: 0; padding: 0; }
-#feed li { padding: 8px 0; border-top: 1px solid #333; overflow-wrap: anywhere; }
+#feed li { padding: 10px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 #feed li:first-child { border-top: 0; }
-#feed .time { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 8px; }
-#feed .action { font-weight: 700; margin-right: 8px; }
-#feed .reason { display: block; color: var(--muted); }
+#feed .time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; margin-right: 8px; }
+#feed .action { font-family: "Outfit", system-ui, sans-serif; margin-right: 8px; }
+#feed .reason { display: block; color: var(--muted); font-size: 0.85rem; }
 #feed-empty { margin: 0; color: var(--muted); }
 #feed-empty[hidden] { display: none; }

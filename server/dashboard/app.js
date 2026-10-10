@@ -20,6 +20,7 @@ export function startDashboard({ document, fetch, setTimeout }) {
   }
 
   function renderStatus(view) {
+    $('page').className = `theme-${view.theme}`;
     const conn = $('connection');
     conn.textContent = view.connection === 'offline' && view.lastSeen !== '--'
       ? `offline, last seen ${view.lastSeen}` : view.connection;

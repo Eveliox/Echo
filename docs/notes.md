@@ -234,3 +234,15 @@ Waiting on Eve:
 - docs/firmware.md power note: when wired to the Mega, the ESP must run on Mega 5V → VIN (its USB holds RX high).
 - Pi 4 idea (stretch, needs the team): keep the Mega as the alarm; a Pi replaces or backs up the ESP, buffers statuses offline on SD, and uploads to Databricks.
 - Gemini key for the #22 live run (paid tier; budget alert).
+
+## 2026-10-10 (David, #25 dashboard style)
+
+#25 committed: the dashboard uses the app's warm style (palette and heatSky/heatSun/heatEmber values from app/src/ui.js), the self-served Doto/Manrope/Outfit TTFs with OFL licenses, and the Echo logo. EMERGENCY turns the whole page deep red with cream text; offline is muted. Existing dashboard tests are unchanged; new tests pin the asset routes, the level-to-theme map, and byte-identity with the app's fonts and logo (an app-only palette or asset change will now fail the server check until the dashboard follows).
+
+For Eve:
+- The CSP gained `img-src 'self'` as well as `font-src 'self'`; the logo can't load otherwise under default-src 'none'. Update #25's text ("CSP gains only font-src") to match.
+- A last-known EMERGENCY shows muted (not red) once the box is offline, as the ticket asks and as the app does; the level text still says EMERGENCY. Worth a conscious team OK.
+- app/assets/fonts/doto-OFL.txt says 2024 and manrope-OFL.txt says 2018; the font files say 2024-2024 and 2019. The server copies use the files' own lines.
+- Assets are no-store (~1.1 MB per page load, not per poll). Fine for the demo.
+
+To do (David, with a phone): the #25 side-by-side. Start a second server on port 3001 (ECHO_CALLS=off, ECHO_LOG_DIR in a temp folder), replay the synthetic recording into it with `--token` (server/.env now sets ECHO_BOX_TOKEN), then compare the laptop page and the app's Car tab through EMERGENCY.
