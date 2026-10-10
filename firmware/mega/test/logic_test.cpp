@@ -220,6 +220,208 @@ static void test_seat_new_baseline_resets_state() {
 }
 
 // ---------------------------------------------------------------------------
+// Alert levels
+// ---------------------------------------------------------------------------
+
+#define CHECK_LEVEL(actual, expected)                                        \
+  do {                                                                       \
+    g_checks++;                                                              \
+    AlertLevel a_ = (actual), e_ = (expected);                               \
+    if (a_ != e_) {                                                          \
+      printf("FAIL %s:%d: got %s, want %s\n", __FILE__, __LINE__,            \
+             alertLevelName(a_), alertLevelName(e_));                        \
+      g_failures++;                                                            \
+    }                                                                        \
+  } while (0)
+
+// Pins the values in docs/firmware.md "Firmware behavior" with literals, so a
+// changed constant fails here instead of silently moving every other test.
+static void test_alert_constants_match_doc() {
+  CHECK(OCCUPANT_AFTER_MS == 30000UL);
+  CHECK(WARNING_TEMP_F == 95.0f);
+  CHECK(EMERGENCY_TEMP_F == 104.0f);
+}
+
+static const float COOL_F = 80.0f;
+
+static AlertInputs carOff(bool occupied, float tempF, uint32_t nowMs) {
+  AlertInputs in;
+  in.ignitionOn = false;
+  in.cancelPressed = false;
+  in.seatOccupied = occupied;
+  in.tempF = tempF;
+  in.nowMs = nowMs;
+  return in;
+}
+
+// Ignition off, seat occupied long enough: ends in OCCUPANT at time `t`.
+static uint32_t reachOccupant(AlertState &s, uint32_t start = 0) {
+  alertInit(s);
+  alertStep(s, carOff(true, COOL_F, start));
+  uint32_t t = start + OCCUPANT_AFTER_MS;
+  alertStep(s, carOff(true, COOL_F, t));
+  return t;
+}
+
+static void test_starts_idle_and_ignition_on_stays_idle() {
+  AlertState s;
+  alertInit(s);
+  CHECK_LEVEL(s.level, LEVEL_IDLE);
+  AlertInputs in = carOff(true, 120.0f, 0);
+  in.ignitionOn = true;
+  CHECK_LEVEL(alertStep(s, in), LEVEL_IDLE);
+  in.nowMs = 60000;
+  CHECK_LEVEL(alertStep(s, in), LEVEL_IDLE);
+}
+
+static void test_ignition_off_arms() {
+  AlertState s;
+  alertInit(s);
+  CHECK_LEVEL(alertStep(s, carOff(false, COOL_F, 0)), LEVEL_ARMED);
+}
+
+static void test_occupant_needs_seat_occupied_for_dwell() {
+  AlertState s;
+  alertInit(s);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 1000)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 1000 + OCCUPANT_AFTER_MS - 1)),
+              LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 1000 + OCCUPANT_AFTER_MS)),
+              LEVEL_OCCUPANT);
+}
+
+static void test_empty_seat_while_armed_restarts_dwell() {
+  AlertState s;
+  alertInit(s);
+  alertStep(s, carOff(true, COOL_F, 0));
+  alertStep(s, carOff(false, COOL_F, OCCUPANT_AFTER_MS - 2000));
+  alertStep(s, carOff(true, COOL_F, OCCUPANT_AFTER_MS - 1000));
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, OCCUPANT_AFTER_MS)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 2 * OCCUPANT_AFTER_MS - 1000)),
+              LEVEL_OCCUPANT);
+}
+
+static void test_dwell_survives_millis_wraparound() {
+  AlertState s;
+  uint32_t start = 0xFFFFFFFFUL - 5000;
+  reachOccupant(s, start);
+  CHECK_LEVEL(s.level, LEVEL_OCCUPANT);
+}
+
+static void test_heat_without_occupant_does_not_alarm() {
+  AlertState s;
+  alertInit(s);
+  CHECK_LEVEL(alertStep(s, carOff(false, 120.0f, 0)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(false, 120.0f, 10 * OCCUPANT_AFTER_MS)),
+              LEVEL_ARMED);
+}
+
+static void test_occupant_to_warning_to_emergency() {
+  AlertState s;
+  uint32_t t = reachOccupant(s);
+  CHECK_LEVEL(alertStep(s, carOff(true, WARNING_TEMP_F - 0.1f, t += 2000)),
+              LEVEL_OCCUPANT);
+  CHECK_LEVEL(alertStep(s, carOff(true, WARNING_TEMP_F, t += 2000)), LEVEL_WARNING);
+  CHECK_LEVEL(alertStep(s, carOff(true, EMERGENCY_TEMP_F - 0.1f, t += 2000)),
+              LEVEL_WARNING);
+  CHECK_LEVEL(alertStep(s, carOff(true, EMERGENCY_TEMP_F, t += 2000)),
+              LEVEL_EMERGENCY);
+}
+
+static void test_occupant_jumps_straight_to_emergency() {
+  AlertState s;
+  uint32_t t = reachOccupant(s);
+  CHECK_LEVEL(alertStep(s, carOff(true, EMERGENCY_TEMP_F + 5.0f, t + 2000)),
+              LEVEL_EMERGENCY);
+}
+
+static void test_nan_temperature_does_not_raise() {
+  AlertState s;
+  uint32_t t = reachOccupant(s);
+  CHECK_LEVEL(alertStep(s, carOff(true, NAN, t + 2000)), LEVEL_OCCUPANT);
+}
+
+static void test_warning_stays_when_cooling_or_seat_empty() {
+  AlertState s;
+  uint32_t t = reachOccupant(s);
+  alertStep(s, carOff(true, WARNING_TEMP_F + 1.0f, t += 2000));
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t += 2000)), LEVEL_WARNING);
+  CHECK_LEVEL(alertStep(s, carOff(false, COOL_F, t += 2000)), LEVEL_WARNING);
+  CHECK_LEVEL(alertStep(s, carOff(false, COOL_F, t += 600000)), LEVEL_WARNING);
+}
+
+static void test_emergency_stays_when_cooling_or_seat_empty() {
+  AlertState s;
+  uint32_t t = reachOccupant(s);
+  alertStep(s, carOff(true, EMERGENCY_TEMP_F + 1.0f, t += 2000));
+  CHECK_LEVEL(alertStep(s, carOff(true, WARNING_TEMP_F, t += 2000)), LEVEL_EMERGENCY);
+  CHECK_LEVEL(alertStep(s, carOff(false, COOL_F, t += 2000)), LEVEL_EMERGENCY);
+  CHECK_LEVEL(alertStep(s, carOff(false, COOL_F, t += 600000)), LEVEL_EMERGENCY);
+}
+
+static void test_occupant_stays_when_seat_empty() {
+  AlertState s;
+  uint32_t t = reachOccupant(s);
+  CHECK_LEVEL(alertStep(s, carOff(false, COOL_F, t + 2000)), LEVEL_OCCUPANT);
+}
+
+static void test_cancel_returns_to_armed_from_every_alarm_level() {
+  for (int target = LEVEL_OCCUPANT; target <= LEVEL_EMERGENCY; target++) {
+    AlertState s;
+    uint32_t t = reachOccupant(s);
+    float hot = target == LEVEL_EMERGENCY ? EMERGENCY_TEMP_F
+              : target == LEVEL_WARNING   ? WARNING_TEMP_F
+                                          : COOL_F;
+    CHECK_LEVEL(alertStep(s, carOff(true, hot, t += 2000)), (AlertLevel)target);
+    AlertInputs in = carOff(true, hot, t += 2000);
+    in.cancelPressed = true;
+    CHECK_LEVEL(alertStep(s, in), LEVEL_ARMED);
+  }
+}
+
+static void test_after_cancel_occupied_seat_needs_full_dwell_again() {
+  AlertState s;
+  uint32_t t = reachOccupant(s);
+  alertStep(s, carOff(true, EMERGENCY_TEMP_F, t += 2000));
+  AlertInputs in = carOff(true, EMERGENCY_TEMP_F, t += 2000);
+  in.cancelPressed = true;
+  alertStep(s, in);
+  CHECK_LEVEL(alertStep(s, carOff(true, EMERGENCY_TEMP_F, t += 2000)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, EMERGENCY_TEMP_F, t + OCCUPANT_AFTER_MS)),
+              LEVEL_EMERGENCY);
+}
+
+static void test_ignition_on_returns_to_idle_from_every_level() {
+  for (int target = LEVEL_ARMED; target <= LEVEL_EMERGENCY; target++) {
+    AlertState s;
+    uint32_t t = 0;
+    if (target == LEVEL_ARMED) {
+      alertInit(s);
+      alertStep(s, carOff(false, COOL_F, t));
+    } else {
+      t = reachOccupant(s);
+      float hot = target == LEVEL_EMERGENCY ? EMERGENCY_TEMP_F
+                : target == LEVEL_WARNING   ? WARNING_TEMP_F
+                                            : COOL_F;
+      alertStep(s, carOff(true, hot, t += 2000));
+    }
+    CHECK_LEVEL(s.level, (AlertLevel)target);
+    AlertInputs in = carOff(true, EMERGENCY_TEMP_F, t += 2000);
+    in.ignitionOn = true;
+    CHECK_LEVEL(alertStep(s, in), LEVEL_IDLE);
+  }
+}
+
+static void test_ignition_beats_cancel() {
+  AlertState s;
+  uint32_t t = reachOccupant(s);
+  AlertInputs in = carOff(true, COOL_F, t + 2000);
+  in.ignitionOn = true;
+  in.cancelPressed = true;
+  CHECK_LEVEL(alertStep(s, in), LEVEL_IDLE);
+}
+
+// ---------------------------------------------------------------------------
 
 int main() {
   test_seat_constants_match_doc();
@@ -239,6 +441,23 @@ int main() {
   test_seat_failed_reading_breaks_the_run();
   test_seat_returns_to_empty_symmetrically();
   test_seat_new_baseline_resets_state();
+  test_alert_constants_match_doc();
+  test_starts_idle_and_ignition_on_stays_idle();
+  test_ignition_off_arms();
+  test_occupant_needs_seat_occupied_for_dwell();
+  test_empty_seat_while_armed_restarts_dwell();
+  test_dwell_survives_millis_wraparound();
+  test_heat_without_occupant_does_not_alarm();
+  test_occupant_to_warning_to_emergency();
+  test_occupant_jumps_straight_to_emergency();
+  test_nan_temperature_does_not_raise();
+  test_warning_stays_when_cooling_or_seat_empty();
+  test_emergency_stays_when_cooling_or_seat_empty();
+  test_occupant_stays_when_seat_empty();
+  test_cancel_returns_to_armed_from_every_alarm_level();
+  test_after_cancel_occupied_seat_needs_full_dwell_again();
+  test_ignition_on_returns_to_idle_from_every_level();
+  test_ignition_beats_cancel();
 
   printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
