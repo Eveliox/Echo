@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { judge, refuseReason, childEnv, BLANKED_CALL_KEYS } from '../smoke.js';
+import { judge, judgeLog, refuseReason, childEnv, BLANKED_CALL_KEYS, DEFAULT_SMOKE_LOG_DIR } from '../smoke.js';
 import { readConfig, missingCallSettings } from '../../server/calls.js';
 
 const last = {
@@ -90,4 +90,23 @@ test('the judge passes the would-call line for the blanked contact', () => {
   const blanked = 'calls: [not live, ECHO_CALLS is not "live"] would call Contact #1 (number not set) '
     + 'for emergency, ladder step 1: "This is Echo, an emergency alert."';
   assert.deepEqual(judge({ output: [...startup, blanked], snapshot, lastStatus: last }), []);
+});
+
+test('the child server logs statuses to the given temp folder, never into the repo', () => {
+  const repo = fileURLToPath(new URL('../..', import.meta.url));
+  const dir = join(tmpdir(), 'echo-smoke-logs-x');
+  assert.equal(childEnv({ ECHO_LOG_DIR: join(repo, 'server', 'logs') }, 4123, dir).ECHO_LOG_DIR, dir);
+  const fallback = childEnv({ ECHO_LOG_DIR: join(repo, 'server', 'logs') }, 4123).ECHO_LOG_DIR;
+  assert.equal(fallback, DEFAULT_SMOKE_LOG_DIR);
+  assert.ok(!fallback.startsWith(repo), `${fallback} is inside the repo`);
+});
+
+test('judgeLog passes one log whose status lines are the recording\'s, and fails otherwise', () => {
+  const lines = ['{"n":1}', '{ "n" : 2 }'];
+  const log = '# 2026-10-10T20:00:00.000Z\n{"n":1}\n# 2026-10-10T20:00:02.000Z\n{ "n" : 2 }\n';
+  assert.deepEqual(judgeLog({ logs: [log], lines }), []);
+  assert.equal(judgeLog({ logs: [], lines }).length, 1);
+  assert.equal(judgeLog({ logs: [log, log], lines }).length, 1);
+  assert.equal(judgeLog({ logs: [log.replace('{ "n" : 2 }', '{"n":2}')], lines }).length, 1, 're-serialized is not unchanged');
+  assert.equal(judgeLog({ logs: ['# 2026-10-10T20:00:00.000Z\n{"n":1}\n'], lines }).length, 1, 'a missing line fails');
 });

@@ -8,10 +8,14 @@
 // server's environment and its Twilio and contact settings blanked, refuses to
 // run at all if ECHO_CALLS=live is set here,
 // and always stops the server, also on failure, timeout, or Ctrl-C.
+// The server's status log goes to a temp folder (ECHO_LOG_DIR), never the
+// repo; smoke checks that log replays the recording's lines, then deletes it.
 
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import net from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { replay, statusLines } from './replay.js';
@@ -68,13 +72,37 @@ export const BLANKED_CALL_KEYS = [
   'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER', 'CONTACT1_NAME', 'CONTACT1_NUMBER',
 ];
 
+// Where the child server logs statuses when no folder is given: outside the repo.
+export const DEFAULT_SMOKE_LOG_DIR = join(tmpdir(), 'echo-smoke-logs');
+
 // The child server's environment: the parent's, with ECHO_CALLS=off, the call
-// settings blanked, and the port set.
-export function childEnv(parentEnv, port) {
-  const env = { ...parentEnv, ECHO_CALLS: 'off', ECHO_PORT: String(port) };
+// settings blanked, the port set, and the status log in `logDir` (a temp folder).
+export function childEnv(parentEnv, port, logDir = DEFAULT_SMOKE_LOG_DIR) {
+  const env = {
+    ...parentEnv, ECHO_CALLS: 'off', ECHO_PORT: String(port), ECHO_LOG_DIR: logDir,
+  };
   for (const key of BLANKED_CALL_KEYS) env[key] = '';
   return env;
 }
+
+// Returns the list of reasons the status log is wrong; empty means pass.
+// `logs` is the text of each file in the log folder, `lines` the recording's
+// status lines: one file whose status lines are exactly the recording's.
+export function judgeLog({ logs, lines }) {
+  if (logs.length !== 1) return [`expected 1 status log file, got ${logs.length}`];
+  if (!isDeepStrictEqual(statusLines(logs[0]), lines)) {
+    return ['the status log does not replay the recording\'s status lines unchanged'];
+  }
+  return [];
+}
+
+const readLogs = (dir) => {
+  try {
+    return readdirSync(dir).map((name) => readFileSync(join(dir, name), 'utf8'));
+  } catch {
+    return [];
+  }
+};
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -96,13 +124,14 @@ async function getStatus(url) {
 }
 
 let child = null;
+let logDir = null;
 
 function startServer(port) {
   const output = [];
   let lastOutputAt = Date.now();
   child = spawn(process.execPath, [SERVER], {
     cwd: ROOT,
-    env: childEnv(process.env, port),
+    env: childEnv(process.env, port, logDir),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const exited = new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })));
@@ -138,6 +167,7 @@ async function run(recording) {
   if (lines.length === 0) throw new Error(`no status lines in ${recording}`);
   const lastStatus = JSON.parse(lines.at(-1));
 
+  logDir = mkdtempSync(join(tmpdir(), 'echo-smoke-logs-'));
   const port = await freePort();
   const server = startServer(port);
   const ready = `Echo server listening on port ${port}`;
@@ -163,7 +193,19 @@ async function run(recording) {
 
   const snapshot = await getStatus(url);
   if (early) throw new Error(`server exited during the replay (code ${early.code}, signal ${early.signal})`);
-  return judge({ output: server.output, snapshot, lastStatus });
+
+  // The log is appended off the request path; give its last writes a moment.
+  let logFailures = judgeLog({ logs: readLogs(logDir), lines });
+  for (const until = Date.now() + OUTPUT_SETTLE_MAX_MS; logFailures.length && Date.now() < until;) {
+    await sleep(50);
+    logFailures = judgeLog({ logs: readLogs(logDir), lines });
+  }
+  return [...judge({ output: server.output, snapshot, lastStatus }), ...logFailures];
+}
+
+function removeLogDir() {
+  if (logDir) rmSync(logDir, { recursive: true, force: true });
+  logDir = null;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -173,7 +215,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   };
   process.on('SIGINT', bail(130));
   process.on('SIGTERM', bail(143));
-  process.on('exit', () => child?.kill('SIGKILL'));
+  process.on('exit', () => {
+    child?.kill('SIGKILL');
+    try { removeLogDir(); } catch { /* best effort on the way out */ }
+  });
   setTimeout(() => {
     console.error(`smoke: FAIL: timed out after ${OVERALL_TIMEOUT_MS} ms`);
     bail(1)();
@@ -186,9 +231,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     failures = [err.message];
   } finally {
     await stopServer();
+    try {
+      removeLogDir();
+    } catch (err) {
+      failures.push(`could not remove the temp log folder: ${err.message}`);
+    }
   }
   if (failures.length === 0) {
-    console.log('smoke: PASS (one ladder call, logged only; server holds the last status)');
+    console.log('smoke: PASS (one ladder call, logged only; server holds the last status; the log replays)');
   } else {
     for (const f of failures) console.error(`smoke: FAIL: ${f}`);
     process.exitCode = 1;
