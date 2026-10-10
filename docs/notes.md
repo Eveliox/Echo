@@ -50,3 +50,25 @@ Twilio setup lessons (for #19 and anyone redoing it):
 - Stop a test server within 2 minutes, or ladder step 2 calls again (step 3 calls Contact #2 at 3 minutes).
 
 No Twilio notice played: the call went straight to "This is Echo…". So #19's voice agent can start speaking as soon as the call is answered, with no trial prompt to work around.
+
+## 2026-10-10 (Eve, Gemini Responder and ElevenLabs voice)
+
+Live end-to-end test passed at 13:37 (#18 + #19, `ECHO_CALLS=live`, synthetic recording replayed):
+1. Ladder step 1 called Contact #1 with the plain Twilio alert.
+2. Gemini turn 1 got 503 "high demand" from Google and did nothing; turn 2 (25 s after EMERGENCY) called Contact #2 early as an ElevenLabs voice conversation.
+3. Contact #2 said "about twenty minutes away"; the voice agent logged it and requested a call to Contact #1, placed as another voice call.
+4. Every call opened with the box's values; every action showed in the dashboard feed with its reason. Server stopped before ladder step 2.
+
+Gemini (#18):
+- `gemini-2.5-flash` answers 404 for new accounts ("no longer available to new users"), even though the models list shows it. The code default is now `gemini-3.8-flash`, sent with low thinking (replies about 3-5 s); model timeout 15 s. `GEMINI_MODEL` in `server/.env` overrides it. Use a pinned name, never `gemini-flash-latest`.
+- Google returns 503 "high demand" now and then; the agent skips that turn and the ladder is unaffected.
+- The project is on the paid tier: set a budget alert in Google Cloud Billing.
+
+ElevenLabs voice (#19), full steps in `server/voice/agent.md`:
+- ElevenLabs is two products: ElevenCreative (voices) and ElevenAgents (use "Switch" bottom left). Agents, Phone Numbers, API keys and Secrets live in ElevenAgents; Phone Numbers and Secrets are under "Back to workspace".
+- Preview needs test values for every dynamic variable (`{ } Vars`), or it fails with "Missing required dynamic variables in first message: {'emergency_message'}".
+- The agent ID is only the `agent_...` part of the URL; copying the rest of the address bar breaks it.
+- Tool webhooks: URL must start with a single `https://`; header name exactly `X-Echo-Voice-Secret` with the `echo-voice-secret` secret; body property identifiers exactly `reason`, `contact`, `note`. ElevenLabs refuses to save a tool with an empty body, so `get_car_status` takes an optional `reason`.
+- Debugging: ngrok's local inspector (http://127.0.0.1:4040) shows each request's path and status; a 401 from GET /favicon.ico is just a browser opening the ngrok link. ElevenLabs' tool "Tool Logs" tab shows whether the agent tried a tool at all.
+- The ElevenLabs workspace secret `twilio_token_...` belongs to the imported Twilio number: keep it.
+- Free ngrok addresses change on every restart: update the three tool URLs after restarting ngrok, and stop ngrok when not testing. Tunnel only the voice port (3100), never 3000.

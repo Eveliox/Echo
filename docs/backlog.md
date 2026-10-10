@@ -167,15 +167,14 @@ Owner: Evelio (sw) · Size: M · Depends on: none · Issue: #18
 Proven by: server, smoke
 
 
-### 19. agent: live voice conversation on the Responder's calls
+### 19. agent: live voice conversation on the Responder's calls (ElevenLabs)
 Owner: Evelio (sw) · Size: L · Depends on: 18 · Issue: #19
-Decide before starting: Twilio ConversationRelay needs a WebSocket server (Node has no built-in one), so either `ws` in a separate `server/voice/` package and process (the `server` Checks row stays built-ins only) or ElevenLabs agents with HTTP webhook tools. Prerequisite: the #6 live call, including whether the trial account plays "press any key" first.
-- [ ] Twilio webhook/voice endpoints run on a separate port, and ngrok tunnels only that port (`/status` and `/actions` are never public); every Twilio request is verified with `X-Twilio-Signature`
-- [ ] When the contact answers, the agent opens with the code-built `emergencyMessage` (`tempF` and `minsToDanger` as sent), listens, and Gemini picks the next tool from the contact's words plus live data
-- [ ] Fallback: a test asserts the call's TwiML plays the code-built `emergencyMessage` if the AI doesn't answer within a set time; the ladder keeps its schedule regardless
-- [ ] Manual with `ECHO_CALLS=live`: the scripted reply "I'm 20 minutes away" makes the agent call Contact #2 and log why; the brief's call-reliability check (10 calls, AI off for 3); a dev-only script runs the 10 scripted replies with code checking the chosen tool
-Proven by: server, manual check (live call)
-
+Decided (Eve, 2026-10-10): ElevenLabs Agents Platform with the Twilio number imported, HTTP webhook tools back into Echo; no WebSocket server or new dependency. The ladder keeps plain Twilio `<Say>` calls.
+- [ ] Responder `place_call` starts an ElevenLabs outbound call (REST, `xi-api-key`; keys in `.env`, placeholders in `env.example`, blanked in smoke; `ECHO_CALLS=live` gate); opens with the code-built `emergencyMessage`, `tempF`/`minsToDanger` passed as sent
+- [ ] Fallback to the Twilio `<Say>` call when ElevenLabs is unconfigured, errors or times out; the ladder's call times are unchanged
+- [ ] Server tools on a separate port (ngrok only that port): `get_car_status`, `request_call(contact)`, `log_action(note)`; shared-secret header, size cap, rate limit, #18 validation and caps; logged as `agent: voice: …`
+- [ ] Agent prompt, first message and tool definitions in the repo with setup steps; manual live checks ("I'm 20 minutes away" → requests Contact #2; 10 calls, ElevenLabs off for 3)
+Proven by: server, smoke, manual check (live call)
 
 ### 20. app: Expo app with Home and Live alert screens
 Owner: Evelio (sw) · Size: L · Depends on: none · Issue: #20
