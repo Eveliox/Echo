@@ -12,6 +12,10 @@
 // it; its header is plain C++ like logic.h.
 #include "../../esp/line_reader.h"
 #include "../../esp/server_url.h"
+#include "../../esp/box_token.h"
+// The template, not the real (git-ignored) secrets.h: pins that its token
+// placeholder is one the ESP build refuses.
+#include "../../esp/secrets.example.h"
 
 static int g_checks = 0;
 static int g_failures = 0;
@@ -1703,6 +1707,46 @@ static void test_server_url_rejects_hostnames_and_bad_urls() {
 }
 
 // ---------------------------------------------------------------------------
+// ESP box token (box_token.h)
+// ---------------------------------------------------------------------------
+
+static void test_box_token_accepts_hex_and_allowed_chars() {
+  CHECK(boxTokenIsUsable("3f9a0c1e7b2d4a6f8e0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d"));
+  CHECK(boxTokenIsUsable("a"));
+  CHECK(boxTokenIsUsable("Box_Token-1"));
+  CHECK(boxTokenIsUsable("your-box-token2"));
+  CHECK(boxTokenIsUsable("your-box-toke"));
+  // Usable in a constant expression, as esp.ino's static_assert needs.
+  static_assert(boxTokenIsUsable("deadbeef"), "hex token must be usable");
+}
+
+static void test_box_token_rejects_empty_placeholder_and_bad_chars() {
+  CHECK(!boxTokenIsUsable(""));
+  CHECK(!boxTokenIsUsable(nullptr));
+  CHECK(!boxTokenIsUsable(BOX_TOKEN_PLACEHOLDER));
+  CHECK(!boxTokenIsUsable("your-box-token"));
+  CHECK(!boxTokenIsUsable(ECHO_BOX_TOKEN));  // secrets.example.h's value
+  CHECK(strcmp(ECHO_BOX_TOKEN, BOX_TOKEN_PLACEHOLDER) == 0);
+  CHECK(!boxTokenIsUsable("dead beef"));
+  CHECK(!boxTokenIsUsable(" deadbeef"));
+  CHECK(!boxTokenIsUsable("deadbeef\n"));
+  CHECK(!boxTokenIsUsable("dead\tbeef"));
+  CHECK(!boxTokenIsUsable("dead#beef"));
+  CHECK(!boxTokenIsUsable("caf\xc3\xa9"));
+  CHECK(!boxTokenIsUsable("\x7f"));
+  // Characters the server's .env parsing could change (quotes stripped,
+  // backslash literal there but an escape in C) or that aren't needed.
+  CHECK(!boxTokenIsUsable("Box_Token-1!~"));
+  CHECK(!boxTokenIsUsable("\"deadbeef\""));
+  CHECK(!boxTokenIsUsable("'deadbeef'"));
+  CHECK(!boxTokenIsUsable("`deadbeef`"));
+  CHECK(!boxTokenIsUsable("dead\\beef"));
+  CHECK(!boxTokenIsUsable("dead!beef"));
+  CHECK(!boxTokenIsUsable("dead~beef"));
+  static_assert(!boxTokenIsUsable("your-box-token"), "placeholder must fail");
+}
+
+// ---------------------------------------------------------------------------
 
 int main() {
   test_seat_constants_match_doc();
@@ -1815,6 +1859,8 @@ int main() {
   test_newest_line_full_length_copied_whole();
   test_server_url_accepts_ipv4_http();
   test_server_url_rejects_hostnames_and_bad_urls();
+  test_box_token_accepts_hex_and_allowed_chars();
+  test_box_token_rejects_empty_placeholder_and_bad_chars();
 
   printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

@@ -6,10 +6,11 @@
 // Nothing here waits for Wi-Fi: lines that arrive while it is down are dropped
 // and the next status (one every 2 s) goes out once it is back.
 //
-// Wi-Fi name, password, and server URL come from secrets.h (git-ignored; copy
-// secrets.example.h). Without it the sketch still compiles, from the example's
-// placeholders, so the build check works on a fresh checkout; it then never
-// joins Wi-Fi and says so on the Serial Monitor.
+// Wi-Fi name, password, server URL, and box token come from secrets.h
+// (git-ignored; copy secrets.example.h). Without it the sketch still compiles,
+// from the example's placeholders, so the build check works on a fresh
+// checkout; it then never joins Wi-Fi and says so on the Serial Monitor.
+// With a secrets.h, it must hold a usable ECHO_BOX_TOKEN or the build stops.
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -17,6 +18,20 @@
 #warning "firmware/esp/secrets.h missing: building with placeholders from secrets.example.h; this ESP will not forward anything"
 #include "secrets.example.h"
 #define ECHO_USING_EXAMPLE_SECRETS 1
+#endif
+
+#include "box_token.h"
+
+#ifndef ECHO_USING_EXAMPLE_SECRETS
+#ifndef ECHO_BOX_TOKEN
+#error "firmware/esp/secrets.h has no box token. Add the line  #define ECHO_BOX_TOKEN \"<hex-token>\"  with the same value as ECHO_BOX_TOKEN in server/.env (e.g. from: openssl rand -hex 24)"
+// Only so the rest of the file compiles quietly and the line above is the
+// one error shown; the build has already failed.
+#define ECHO_BOX_TOKEN ""
+#else
+static_assert(boxTokenIsUsable(ECHO_BOX_TOKEN),
+              "ECHO_BOX_TOKEN in firmware/esp/secrets.h is empty, still the example placeholder, or has a character other than 0-9 A-Z a-z _ -. Set  #define ECHO_BOX_TOKEN \"<hex-token>\"  to the same value as ECHO_BOX_TOKEN in server/.env (e.g. from: openssl rand -hex 24)");
+#endif
 #endif
 
 #include <ESP8266WiFi.h>
@@ -84,6 +99,8 @@ void forward(const char *line) {
     return;
   }
   http.addHeader("Content-Type", "application/json");
+  // Checked by the server against ECHO_BOX_TOKEN (server/auth.js). Never log it.
+  http.addHeader("X-Echo-Token", ECHO_BOX_TOKEN);
   int code = http.POST((const uint8_t *)line, strlen(line));
   http.end();
   if (code == 200) {

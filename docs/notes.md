@@ -196,3 +196,16 @@ Found on the bench (fix or document):
 - #17: the ESP doesn't send X-Echo-Token yet. Keep ECHO_BOX_TOKEN unset in server/.env until #17 lands, or every box status gets 401.
 
 Still open for #15: WARNING/EMERGENCY on hardware (this session's log peaked at 85.7 °F; next time use the LM35 against a mug of hot water) with the yellow/red/buzzer/siren checks, the dashboard during that run, the `real-*.jsonl` log for #14/#23 (2–3 runs), and the #13 battery check. Today's room-temperature log (544 lines, ARMED/OCCUPANT only) is on David's Desktop, not in git; it isn't a heat test.
+
+## 2026-10-10 (David, #17 box token)
+
+#17 code is in: the ESP sends X-Echo-Token on every POST, read from firmware/esp/secrets.h. The build stops with a clear #error if the token is missing, and with a static_assert if it is empty, the placeholder, or uses characters outside [0-9A-Za-z_-]. That limit is there because server/.env parsing strips quotes, and a backslash differs between C and .env. A clean clone without secrets.h still builds (Wi-Fi off).
+
+On David's laptop: one generated 48-char hex token is in both firmware/esp/secrets.h and server/.env (both git-ignored; server/.env holds only that line). The ESP on the box still runs the pre-#17 firmware, so don't restart a server with that .env until the ESP is re-flashed, or every box status gets 401.
+
+To do (David): the #17 manual check. Re-flash the ESP (VIN and RX unplugged, upload over USB, then back to RX + VIN), restart the server (startup says "box token auth: on"), check the dashboard updates every ~2 s with no "rejected" lines, and that a curl POST without the token gets 401.
+
+For Eve:
+- Before turning on ECHO_BOX_TOKEN anywhere, the box's ESP must run the #17 firmware and her server/.env must hold the same token as the box's secrets.h.
+- Follow-up in server/ (safety-critical, so out of #17's scope): server/auth.js startup text and server/env.example still describe #17 as pending; auth.test.js asserts /#17/ on that text.
+- #16's unchecked doc item: docs/firmware.md doesn't mention the X-Echo-Token header yet (needs David's OK; it's a header, not a status field).
