@@ -39,8 +39,11 @@ export function validateStatus(body) {
 }
 
 // Keeps the latest valid status and reports whether the box is online.
-// `now` is injectable so tests don't have to wait.
-export function createTracker({ now = Date.now, offlineAfterMs = OFFLINE_AFTER_MS } = {}) {
+// `now` is injectable so tests don't have to wait. A listener that throws or
+// rejects is logged through `logError` and never reaches the HTTP handler.
+export function createTracker({
+  now = Date.now, offlineAfterMs = OFFLINE_AFTER_MS, logError = console.error,
+} = {}) {
   let latest = null;
   let lastSeen = null;
   const listeners = [];
@@ -50,7 +53,16 @@ export function createTracker({ now = Date.now, offlineAfterMs = OFFLINE_AFTER_M
     update(status) {
       latest = status;
       lastSeen = now();
-      for (const listener of listeners) listener(status);
+      for (const listener of listeners) {
+        try {
+          const result = listener(status);
+          if (result && typeof result.catch === 'function') {
+            result.catch((err) => logError('status listener failed:', err));
+          }
+        } catch (err) {
+          logError('status listener failed:', err);
+        }
+      }
     },
     isOnline() {
       return lastSeen !== null && now() - lastSeen < offlineAfterMs;

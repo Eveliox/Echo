@@ -84,3 +84,25 @@ test('tracker calls onStatus listeners with each new status', () => {
   tracker.update({ ...valid(), state: 'WARNING' });
   assert.deepEqual(seen, ['OCCUPANT', 'WARNING']);
 });
+
+test('a listener that throws is logged and does not stop the update or later listeners', () => {
+  const errors = [];
+  const tracker = createTracker({ now: () => 0, logError: (...a) => errors.push(a) });
+  const seen = [];
+  tracker.onStatus(() => { throw new Error('boom'); });
+  tracker.onStatus((s) => seen.push(s.state));
+  assert.doesNotThrow(() => tracker.update({ ...valid(), state: 'EMERGENCY' }));
+  assert.equal(tracker.snapshot().status.state, 'EMERGENCY');
+  assert.deepEqual(seen, ['EMERGENCY']);
+  assert.equal(errors.length, 1);
+});
+
+test('a listener that rejects is logged, not left as an unhandled rejection', async () => {
+  const errors = [];
+  const tracker = createTracker({ now: () => 0, logError: (...a) => errors.push(a) });
+  tracker.onStatus(async () => { throw new Error('async boom'); });
+  tracker.update(valid());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(errors.length, 1);
+  assert.match(String(errors[0][1]), /async boom/);
+});
