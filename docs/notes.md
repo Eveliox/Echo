@@ -81,3 +81,40 @@ ElevenLabs voice (#19), full steps in `server/voice/agent.md`:
 - Setup: copy `app/env.example` to git-ignored `app/.env`, set the laptop hotspot IP/port and local Mom/demo numbers, then run `npm ci` and `npx expo start` from `app/`. The phone needs SDK 57-compatible Expo Go and the same hotspot. Keep `EXPO_PUBLIC_ECHO_DEMO_CALLS=true` for the teammate dialer. App config is bundled and must never contain server secrets.
 - Pending manual check: start the server with `ECHO_CALLS=off`, replay the synthetic recording, verify Home → Live alert and offline after silence/network loss, tap the log acknowledgement, and verify the demo/Mom buttons open the dialer without placing a call. Compare typography/layout with the ticket's Claude Design canvas at 390×844; that canvas was inaccessible to the implementation tools. Do not close #20 until the Expo Go check passes. The agent-order copy belongs with the Contacts screen (#21), which is outside this implementation.
 - Validation: test-gate APPROVE against `main@be87f4c`, no regressions or test tampering; 218 server tests, 9 app tests, both firmware builds, and 104,911 logic checks pass. iOS and Android Expo exports pass. Smoke was skipped per ticket-mode workflow; the root lint Checks row remains TODO.
+
+## 2026-10-10 (Eve, preparing #20 phone check)
+
+- Created ignored app/.env using the current laptop Wi-Fi IP and demo dialing enabled; Mom/demo numbers still need local configuration for dialer checks.
+- The documented npm ci exposed missing/inconsistent optional ESLint resolver dependencies in package-lock.json. Repaired the lock with npm install --package-lock-only; npm ci now passes. No direct dependency versions changed.
+- Started Expo LAN and a local server with calls and AI disabled. Phone observations and recording replay are still pending; #20 remains open.
+
+- Phone connection confirmed by Eve ("it works very nice"). Started the synthetic replay at 500 ms per status for the Home → Live alert check, with calls disabled. Screen transition/offline and button observations still await confirmation.
+
+- Eve confirmed the replay phone check passed ("perfect" in response to Home → red Live alert with heat chart → OFFLINE after silence). Expo Go connection and these screen transitions are now manually verified. Acknowledgement and configured demo/Mom dialer buttons still need phone verification; no claim of complete design-canvas comparison. #20 remains open for those remaining checks.
+
+- Acknowledgement phone check: Eve tapped the button and saw the repeat cooldown message. GET /actions confirmed the fixed app note was recorded at 18:30:13Z. Improved feedback: successful button says Message logged and disables for the cooldown; confirmation sits directly below it; in-flight guard prevents duplicate taps. Updated feedback still needs visual confirmation on phone.
+
+- Eve confirmed the updated acknowledgement feedback works on the phone ("perfect it works"): Message logged button state and adjacent confirmation manually verified. Home/live/offline transitions and acknowledgement now pass phone checks. Configured demo/Mom dialer behavior and complete design-canvas comparison remain unverified; #20 remains open.
+
+## 2026-10-10 14:33 (#20 handoff)
+
+- Core #20 implementation is committed as b4c0031; phone verified Home → Live alert → offline and the acknowledgement after its feedback fix.
+- Follow-up changes remain uncommitted: app/App.js acknowledgement feedback, app/package-lock.json clean-install repair, docs/notes.md. App tests and lint pass; npm ci succeeds.
+- Remaining closure checks: configured demo/Mom dialer opens without calling, and explicit comparison/approval against the Claude Design boards. #20 remains open; no unverified checks marked passed.
+- Next implementation: #21 Agent feed from /actions (newest first), Contacts in fixed ladder order from a names-only GET /contacts; include the agent-can-call-sooner-never-later copy there.
+
+## 2026-10-10 (#20 supplied design references)
+
+- Eve supplied six Claude Design screen images and requested design refinement plus demo/Mom dialer checks. Compared Home/offline/Live alert source layout to boards 1–3: replaced stacked cards with a centered number and unit, Family car header, compact Seat/Movement/Humidity/Battery row, last-heard timestamp, simple offline Call Mom action, and compact emergency chart/actions. Preserved agreed dark Home/offline with level glow and red only at EMERGENCY.
+- Added a current chart point and kept the box-derived forecast; no sample call claims or predictions copied from the design. Feed/Contacts belong to #21; insights belong to #23. Contacts remain names-only and fixed order per the ticket decisions, despite draggable numbers in the reference.
+- Validation after refinements: 10 app tests, Expo lint, iOS/Android exports, diff whitespace check pass. Native visual approval of these refinements is pending. Requested teammate/demo number for both local dialer targets; awaiting reply, no numbers assumed or copied from mockups.
+
+- Configured both local Mom/demo dialer targets using Eve’s supplied US number in ignored app/.env; demo mode remains true. Restarted Expo to pick up configuration. Phone verification pending; number intentionally omitted from tracked notes.
+
+- Eve confirmed offline Call Mom opens the configured number in the phone dialer/confirmation prompt without placing a call. Starting the emergency demo-dialer phone check next.
+
+## 2026-10-10 (#20 phone verification complete)
+
+- Eve confirmed the emergency demo dialer opens the configured teammate number without calling and approved the updated emergency layout (number, chart, buttons: "yes perfect"). Offline Call Mom was confirmed in the preceding check.
+- Phone checks now cover Home → Live alert → offline, acknowledgement logging and persistent feedback, both dialer buttons, and user approval of the design refinements based on the supplied references. Preserve the agreed dark Home/offline and red emergency treatment.
+- #20 is ready to close. Follow-up UI, lockfile, tests, and notes remain uncommitted. Next ticket: #21 Agent feed and names-only Contacts in fixed ladder order.
