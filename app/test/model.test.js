@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { viewModel as makeView, emergencyCopy, heatCurve, DANGER_F, emergencyPhone, phoneUrl, serverUrl } from '../src/model.js';
+import { viewModel as makeView, sensorReadings, emergencyCopy, heatCurve, DANGER_F, emergencyPhone, phoneUrl, serverUrl } from '../src/model.js';
 import { poll, request } from '../src/client.js';
 const viewModel = (snapshot, connected, now) => makeView(snapshot, connected, now, 1000);
 const status = { state: 'EMERGENCY', tempF: 101.23, presence: true, battery: null, minsToDanger: 3.75 };
@@ -64,4 +64,13 @@ test('laptop clock skew never suppresses a fresh emergency; local receipt expiry
 test('latched emergency with an empty seat does not claim occupancy', () => {
   assert.match(emergencyCopy(status), /occupied seat/);
   assert.doesNotMatch(emergencyCopy({ ...status, presence: false }), /occupied/);
+});
+
+test('sensor row preserves zero and decimals and distinguishes unknown motion from no movement', () => {
+  assert.deepEqual(sensorReadings({ presence: true, motion: null, humidity: 41.25, battery: 0 }), [
+    { label: 'Seat', value: 'Yes' }, { label: 'Movement', value: '—' },
+    { label: 'Humidity', value: '41.25%' }, { label: 'Battery', value: '0%' },
+  ]);
+  assert.deepEqual(sensorReadings({ presence: false, motion: false, humidity: 0, battery: null }).map(r => r.value), ['No', 'None', '0%', '—']);
+  assert.equal(sensorReadings({ motion: true })[1].value, 'Seen');
 });

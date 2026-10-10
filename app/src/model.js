@@ -43,3 +43,13 @@ export function heatCurve(entries, status, online, width = 300, height = 140) {
   const points = values.map(e => ({ x: x(e.receivedAt), y: y(e.status.tempF) }));
   return { points, dangerY: y(DANGER_F), forecast: forecastMinutes === null ? null : { from: points.at(-1), to: { x: width, y: y(DANGER_F) }, label: `+${forecastMinutes} min` } };
 }
+
+// Secondary telemetry stays literal; an unplugged sensor is unknown, not absent.
+export function sensorReadings(status) {
+  return [
+    { label: 'Seat', value: status.presence == null ? '—' : status.presence ? 'Yes' : 'No' },
+    { label: 'Movement', value: status.motion == null ? '—' : status.motion ? 'Seen' : 'None' },
+    { label: 'Humidity', value: status.humidity == null ? '—' : `${status.humidity}%` },
+    { label: 'Battery', value: status.battery == null ? '—' : `${status.battery}%` },
+  ];
+}
