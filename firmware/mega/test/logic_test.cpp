@@ -13,6 +13,7 @@
 #include "../../esp/line_reader.h"
 #include "../../esp/server_url.h"
 #include "../../esp/box_token.h"
+#include "../../esp/wifi_watchdog.h"
 // The template, not the real (git-ignored) secrets.h: pins that its token
 // placeholder is one the ESP build refuses.
 #include "../../esp/secrets.example.h"
@@ -1747,6 +1748,409 @@ static void test_box_token_rejects_empty_placeholder_and_bad_chars() {
 }
 
 // ---------------------------------------------------------------------------
+// ESP8266 Wi-Fi watchdog (firmware/esp/wifi_watchdog.h)
+// ---------------------------------------------------------------------------
+
+static const uint32_t WD_STEP_MS = 100;  // a slow ESP loop
+
+// Runs the watchdog from `from` up to (not including) `to` in WD_STEP_MS
+// steps with a fixed Wi-Fi state, counting each action returned.
+static void wdRun(WifiWatchdog &w, uint32_t from, uint32_t to, bool connected,
+                  int &restarts, int &reboots) {
+  for (uint32_t t = from; t != to; t += WD_STEP_MS) {
+    WifiWatchdogAction a = wifiWatchdogUpdate(w, t, connected);
+    if (a == WIFI_WATCHDOG_RESTART_WIFI) restarts++;
+    if (a == WIFI_WATCHDOG_REBOOT) reboots++;
+  }
+}
+
+static void test_wifi_watchdog_ladder_order() {
+  CHECK(WIFI_WATCHDOG_RESTART_MS > 0);
+  CHECK(WIFI_WATCHDOG_REBOOT_MS > WIFI_WATCHDOG_RESTART_MS);
+  CHECK(WIFI_WATCHDOG_RESTART_MS % WD_STEP_MS == 0);
+  CHECK(WIFI_WATCHDOG_REBOOT_MS % WD_STEP_MS == 0);
+}
+
+static void test_wifi_watchdog_quiet_while_connected() {
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  int restarts = 0, reboots = 0;
+  wdRun(w, 0, 10 * WIFI_WATCHDOG_REBOOT_MS, true, restarts, reboots);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+}
+
+static void test_wifi_watchdog_restart_once_then_reboot() {
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  int restarts = 0, reboots = 0;
+  wdRun(w, 0, 5000, true, restarts, reboots);
+  // Outage starts at 5000 ms.
+  const uint32_t start = 5000;
+  wdRun(w, start, start + WIFI_WATCHDOG_RESTART_MS, false, restarts, reboots);
+  CHECK(restarts == 0);  // nothing before the restart time
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, start + WIFI_WATCHDOG_RESTART_MS, false) ==
+        WIFI_WATCHDOG_RESTART_WIFI);
+  wdRun(w, start + WIFI_WATCHDOG_RESTART_MS + WD_STEP_MS,
+        start + WIFI_WATCHDOG_REBOOT_MS, false, restarts, reboots);
+  CHECK(restarts == 0);  // exactly one Wi-Fi restart per outage
+  CHECK(reboots == 0);   // no reboot before the reboot time
+  CHECK(wifiWatchdogUpdate(w, start + WIFI_WATCHDOG_REBOOT_MS, false) ==
+        WIFI_WATCHDOG_REBOOT);
+  // Not asked again on the very next loop.
+  CHECK(wifiWatchdogUpdate(w, start + WIFI_WATCHDOG_REBOOT_MS + WD_STEP_MS,
+                           false) == WIFI_WATCHDOG_NONE);
+}
+
+static void test_wifi_watchdog_never_joined_since_boot() {
+  // Boot counts as the start of an outage (e.g. the hotspot is off).
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 1234);
+  CHECK(wifiWatchdogUpdate(w, 1234 + WIFI_WATCHDOG_RESTART_MS - 1, false) ==
+        WIFI_WATCHDOG_NONE);
+  CHECK(wifiWatchdogUpdate(w, 1234 + WIFI_WATCHDOG_RESTART_MS, false) ==
+        WIFI_WATCHDOG_RESTART_WIFI);
+  CHECK(wifiWatchdogUpdate(w, 1234 + WIFI_WATCHDOG_REBOOT_MS - 1, false) ==
+        WIFI_WATCHDOG_NONE);
+  CHECK(wifiWatchdogUpdate(w, 1234 + WIFI_WATCHDOG_REBOOT_MS, false) ==
+        WIFI_WATCHDOG_REBOOT);
+}
+
+static void test_wifi_watchdog_reconnect_resets_ladder() {
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  int restarts = 0, reboots = 0;
+  // Down long enough for the Wi-Fi restart, then it rejoins.
+  wdRun(w, 0, WIFI_WATCHDOG_RESTART_MS + WD_STEP_MS, false, restarts, reboots);
+  CHECK(restarts == 1);
+  CHECK(wifiWatchdogUpdate(w, WIFI_WATCHDOG_RESTART_MS + WD_STEP_MS, true) ==
+        WIFI_WATCHDOG_NONE);
+  // A new outage gets the whole ladder again, timed from its own start,
+  // including a fresh Wi-Fi restart and no reboot carried over.
+  const uint32_t start = 2 * WIFI_WATCHDOG_REBOOT_MS;
+  restarts = 0;
+  wdRun(w, WIFI_WATCHDOG_RESTART_MS + 2 * WD_STEP_MS, start, true, restarts,
+        reboots);
+  wdRun(w, start, start + WIFI_WATCHDOG_RESTART_MS, false, restarts, reboots);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, start + WIFI_WATCHDOG_RESTART_MS, false) ==
+        WIFI_WATCHDOG_RESTART_WIFI);
+  wdRun(w, start + WIFI_WATCHDOG_RESTART_MS + WD_STEP_MS,
+        start + WIFI_WATCHDOG_REBOOT_MS, false, restarts, reboots);
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, start + WIFI_WATCHDOG_REBOOT_MS, false) ==
+        WIFI_WATCHDOG_REBOOT);
+}
+
+static void test_wifi_watchdog_blips_never_trigger() {
+  // Outages just shorter than the restart time, separated by one connected
+  // loop, never add up to an action.
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  int restarts = 0, reboots = 0;
+  uint32_t t = 0;
+  for (int i = 0; i < 20; i++) {
+    wdRun(w, t, t + WIFI_WATCHDOG_RESTART_MS - WD_STEP_MS, false, restarts,
+          reboots);
+    t += WIFI_WATCHDOG_RESTART_MS - WD_STEP_MS;
+    CHECK(wifiWatchdogUpdate(w, t, true) == WIFI_WATCHDOG_NONE);
+    t += WD_STEP_MS;
+  }
+  CHECK(t > 2 * WIFI_WATCHDOG_REBOOT_MS);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+}
+
+static void test_wifi_watchdog_survives_millis_wraparound() {
+  // An outage that starts just before millis() wraps to 0.
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  const uint32_t start = 0xFFFFFFFFUL - 5000UL;
+  CHECK(wifiWatchdogUpdate(w, start - WD_STEP_MS, true) == WIFI_WATCHDOG_NONE);
+  int restarts = 0, reboots = 0;
+  wdRun(w, start, start + WIFI_WATCHDOG_RESTART_MS, false, restarts, reboots);
+  CHECK(restarts == 0);  // the wrap is not mistaken for a long outage
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, start + WIFI_WATCHDOG_RESTART_MS, false) ==
+        WIFI_WATCHDOG_RESTART_WIFI);
+  wdRun(w, start + WIFI_WATCHDOG_RESTART_MS + WD_STEP_MS,
+        start + WIFI_WATCHDOG_REBOOT_MS, false, restarts, reboots);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, start + WIFI_WATCHDOG_REBOOT_MS, false) ==
+        WIFI_WATCHDOG_REBOOT);
+}
+
+
+static void test_wifi_watchdog_link_second_ladder_if_reboot_did_not_happen() {
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  CHECK(wifiWatchdogUpdate(w, WIFI_WATCHDOG_REBOOT_MS, false) ==
+        WIFI_WATCHDOG_REBOOT);
+  const uint32_t t = WIFI_WATCHDOG_REBOOT_MS;
+  int restarts = 0, reboots = 0;
+  wdRun(w, t + WD_STEP_MS, t + WIFI_WATCHDOG_RESTART_MS, false, restarts,
+        reboots);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, t + WIFI_WATCHDOG_RESTART_MS, false) ==
+        WIFI_WATCHDOG_RESTART_WIFI);
+  wdRun(w, t + WIFI_WATCHDOG_RESTART_MS + WD_STEP_MS,
+        t + WIFI_WATCHDOG_REBOOT_MS, false, restarts, reboots);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, t + WIFI_WATCHDOG_REBOOT_MS, false) ==
+        WIFI_WATCHDOG_REBOOT);
+}
+
+static void test_wifi_watchdog_connected_exactly_at_threshold() {
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  CHECK(wifiWatchdogUpdate(w, WIFI_WATCHDOG_RESTART_MS, true) ==
+        WIFI_WATCHDOG_NONE);
+  // The outage is over: the next one is timed from its own start.
+  const uint32_t start = WIFI_WATCHDOG_RESTART_MS + WD_STEP_MS;
+  CHECK(wifiWatchdogUpdate(w, start, false) == WIFI_WATCHDOG_NONE);
+  CHECK(wifiWatchdogUpdate(w, start + WIFI_WATCHDOG_RESTART_MS - 1, false) ==
+        WIFI_WATCHDOG_NONE);
+  CHECK(wifiWatchdogUpdate(w, start + WIFI_WATCHDOG_REBOOT_MS - 1, false) ==
+        WIFI_WATCHDOG_RESTART_WIFI);
+  CHECK(wifiWatchdogUpdate(w, start + WIFI_WATCHDOG_REBOOT_MS, true) ==
+        WIFI_WATCHDOG_NONE);
+  CHECK(!w.down);
+  CHECK(!w.restarted);
+}
+
+static void test_wifi_watchdog_coarse_step_past_reboot() {
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  CHECK(wifiWatchdogUpdate(w, WIFI_WATCHDOG_REBOOT_MS * 3, false) ==
+        WIFI_WATCHDOG_REBOOT);
+  CHECK(w.cause == WIFI_WATCHDOG_CAUSE_LINK);
+}
+
+// --- POSTs failing while Wi-Fi reads connected ---
+
+static const uint32_t WD_POST_MS = 2000;  // one status every 2 s
+
+// Connected loops from `from` up to (not including) `to`, one POST result
+// every WD_POST_MS, counting actions.
+static void wdPosts(WifiWatchdog &w, uint32_t from, uint32_t to,
+                    WifiPostResult post, int &restarts, int &reboots) {
+  for (uint32_t t = from; t != to; t += WD_POST_MS) {
+    WifiWatchdogAction a = wifiWatchdogUpdate(w, t, true, post);
+    if (a == WIFI_WATCHDOG_RESTART_WIFI) restarts++;
+    if (a == WIFI_WATCHDOG_REBOOT) reboots++;
+  }
+}
+
+static void test_wifi_post_constants_order() {
+  CHECK(WIFI_WATCHDOG_POST_RESTART_MS > 0);
+  CHECK(WIFI_WATCHDOG_POST_REBOOT_MS > WIFI_WATCHDOG_POST_RESTART_MS);
+  CHECK(WIFI_WATCHDOG_POST_GAP_MS > WD_POST_MS);
+  CHECK(WIFI_WATCHDOG_POST_RESTART_MS % WD_POST_MS == 0);
+  CHECK(WIFI_WATCHDOG_POST_REBOOT_MS % WD_POST_MS == 0);
+}
+
+static void test_wifi_post_result_from_code() {
+  CHECK(wifiPostResultFromCode(200) == WIFI_POST_OK);
+  CHECK(wifiPostResultFromCode(401) == WIFI_POST_OK);
+  CHECK(wifiPostResultFromCode(404) == WIFI_POST_OK);
+  CHECK(wifiPostResultFromCode(500) == WIFI_POST_OK);
+  CHECK(wifiPostResultFromCode(-1) == WIFI_POST_FAIL);   // connection refused
+  CHECK(wifiPostResultFromCode(-11) == WIFI_POST_FAIL);  // read timeout
+  CHECK(wifiPostResultFromCode(0) == WIFI_POST_FAIL);
+}
+
+static void test_wifi_post_restart_then_reboot() {
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  int restarts = 0, reboots = 0;
+  wdPosts(w, 0, 10000, WIFI_POST_OK, restarts, reboots);
+  // First failed POST at 10 s starts the streak.
+  const uint32_t s = 10000;
+  wdPosts(w, s, s + WIFI_WATCHDOG_POST_RESTART_MS, WIFI_POST_FAIL, restarts,
+          reboots);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, s + WIFI_WATCHDOG_POST_RESTART_MS, true,
+                           WIFI_POST_FAIL) == WIFI_WATCHDOG_RESTART_WIFI);
+  CHECK(w.cause == WIFI_WATCHDOG_CAUSE_POSTS);
+  wdPosts(w, s + WIFI_WATCHDOG_POST_RESTART_MS + WD_POST_MS,
+          s + WIFI_WATCHDOG_POST_REBOOT_MS, WIFI_POST_FAIL, restarts, reboots);
+  CHECK(restarts == 0);  // once per streak
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, s + WIFI_WATCHDOG_POST_REBOOT_MS, true,
+                           WIFI_POST_FAIL) == WIFI_WATCHDOG_REBOOT);
+  CHECK(w.cause == WIFI_WATCHDOG_CAUSE_POSTS);
+  // If the reboot didn't happen, a full second ladder follows.
+  const uint32_t t = s + WIFI_WATCHDOG_POST_REBOOT_MS;
+  wdPosts(w, t + WD_POST_MS, t + WIFI_WATCHDOG_POST_RESTART_MS,
+          WIFI_POST_FAIL, restarts, reboots);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, t + WIFI_WATCHDOG_POST_RESTART_MS, true,
+                           WIFI_POST_FAIL) == WIFI_WATCHDOG_RESTART_WIFI);
+  wdPosts(w, t + WIFI_WATCHDOG_POST_RESTART_MS + WD_POST_MS,
+          t + WIFI_WATCHDOG_POST_REBOOT_MS, WIFI_POST_FAIL, restarts, reboots);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, t + WIFI_WATCHDOG_POST_REBOOT_MS, true,
+                           WIFI_POST_FAIL) == WIFI_WATCHDOG_REBOOT);
+}
+
+static void test_wifi_post_any_http_code_resets_streak() {
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  int restarts = 0, reboots = 0;
+  uint32_t t = 0;
+  // Fail for just under the restart time, one answered POST, repeat.
+  for (int i = 0; i < 10; i++) {
+    wdPosts(w, t, t + WIFI_WATCHDOG_POST_RESTART_MS, WIFI_POST_FAIL, restarts,
+            reboots);
+    t += WIFI_WATCHDOG_POST_RESTART_MS;
+    // e.g. a 401 or 500: wifiPostResultFromCode gives OK.
+    CHECK(wifiWatchdogUpdate(w, t, true, wifiPostResultFromCode(500)) ==
+          WIFI_WATCHDOG_NONE);
+    CHECK(!w.failing);
+    t += WD_POST_MS;
+  }
+  CHECK(t > WIFI_WATCHDOG_POST_REBOOT_MS * 2);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  // OK exactly when the restart would be due: NONE, and the streak resets.
+  wdPosts(w, t, t + WIFI_WATCHDOG_POST_RESTART_MS, WIFI_POST_FAIL, restarts,
+          reboots);
+  CHECK(wifiWatchdogUpdate(w, t + WIFI_WATCHDOG_POST_RESTART_MS, true,
+                           WIFI_POST_OK) == WIFI_WATCHDOG_NONE);
+  CHECK(w.failingMs == 0);
+  CHECK(restarts == 0);
+}
+
+static void test_wifi_post_no_escalation_without_attempts() {
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  int restarts = 0, reboots = 0;
+  // Connected, Mega silent (no POSTs) for a long time.
+  wdPosts(w, 0, 10 * WIFI_WATCHDOG_POST_REBOOT_MS, WIFI_POST_NONE, restarts,
+          reboots);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  // One failed POST, then silence, then single failed POSTs far apart: each
+  // gap counts at most WIFI_WATCHDOG_POST_GAP_MS.
+  uint32_t t = 10 * WIFI_WATCHDOG_POST_REBOOT_MS;
+  const uint32_t apart = 10 * 60000UL;
+  for (int i = 0; i < 5; i++) {
+    CHECK(wifiWatchdogUpdate(w, t, true, WIFI_POST_FAIL) == WIFI_WATCHDOG_NONE);
+    wdPosts(w, t + WD_POST_MS, t + apart, WIFI_POST_NONE, restarts, reboots);
+    t += apart;
+  }
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  CHECK(w.failingMs == 4 * WIFI_WATCHDOG_POST_GAP_MS);
+}
+
+static void test_wifi_post_streak_survives_its_own_wifi_restart() {
+  // The Wi-Fi restart from the POST ladder drops and rejoins the link; the
+  // streak must carry on to the reboot instead of restarting Wi-Fi forever.
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  int restarts = 0, reboots = 0;
+  wdPosts(w, 0, WIFI_WATCHDOG_POST_RESTART_MS, WIFI_POST_FAIL, restarts,
+          reboots);
+  CHECK(wifiWatchdogUpdate(w, WIFI_WATCHDOG_POST_RESTART_MS, true,
+                           WIFI_POST_FAIL) == WIFI_WATCHDOG_RESTART_WIFI);
+  // Link down for 4 s while it rejoins (no POSTs), then connected again.
+  uint32_t t = WIFI_WATCHDOG_POST_RESTART_MS + WD_POST_MS;
+  wdRun(w, t, t + 4000, false, restarts, reboots);
+  t += 4000;
+  CHECK(wifiWatchdogUpdate(w, t, true) == WIFI_WATCHDOG_NONE);
+  CHECK(!w.down);    // the link ladder reset on reconnect
+  CHECK(w.failing);  // the POST streak did not
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  // Keep failing until the accumulated streak reaches the reboot.
+  uint32_t n = 0;
+  WifiWatchdogAction a = WIFI_WATCHDOG_NONE;
+  while (a == WIFI_WATCHDOG_NONE && n < 1000) {
+    t += WD_POST_MS;
+    n++;
+    a = wifiWatchdogUpdate(w, t, true, WIFI_POST_FAIL);
+  }
+  CHECK(a == WIFI_WATCHDOG_REBOOT);
+  // Last failed POST before the restart was at 60 s; the next at 68 s, so the
+  // 8 s gap across the rejoin counted as WIFI_WATCHDOG_POST_GAP_MS (5 s).
+  // Then 2 s per POST from 65 s of streak to >= 180 s: 58 POSTs.
+  static_assert(WIFI_WATCHDOG_POST_RESTART_MS == 60000UL &&
+                    WIFI_WATCHDOG_POST_REBOOT_MS == 180000UL &&
+                    WIFI_WATCHDOG_POST_GAP_MS == 5000UL,
+                "update the expected time below with the constants");
+  CHECK(t == 68000UL + 58UL * WD_POST_MS);
+}
+
+static void test_wifi_post_and_link_ladders_together() {
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  int restarts = 0, reboots = 0;
+  // 40 s of failed POSTs (below the POST restart), then the link drops.
+  wdPosts(w, 0, 40000, WIFI_POST_FAIL, restarts, reboots);
+  CHECK(restarts == 0);
+  const uint32_t d = 40000;
+  // The link ladder runs on its own clock from the drop.
+  wdRun(w, d, d + WIFI_WATCHDOG_RESTART_MS, false, restarts, reboots);
+  CHECK(restarts == 0);
+  CHECK(wifiWatchdogUpdate(w, d + WIFI_WATCHDOG_RESTART_MS, false) ==
+        WIFI_WATCHDOG_RESTART_WIFI);
+  CHECK(w.cause == WIFI_WATCHDOG_CAUSE_LINK);
+  // A POST result while disconnected (can't really happen) is ignored.
+  CHECK(wifiWatchdogUpdate(w, d + WIFI_WATCHDOG_RESTART_MS + WD_STEP_MS, false,
+                           WIFI_POST_FAIL) == WIFI_WATCHDOG_NONE);
+  // Back after 50 s down: the POST streak was paused, not grown by the outage.
+  const uint32_t back = d + 50000;
+  CHECK(wifiWatchdogUpdate(w, back, true) == WIFI_WATCHDOG_NONE);
+  CHECK(w.failing);
+  CHECK(w.failingMs < 40000);
+  // First failed POST after rejoin adds one capped gap; the POST restart
+  // comes once 60 s of failing has accumulated in total.
+  CHECK(wifiWatchdogUpdate(w, back + WD_POST_MS, true, WIFI_POST_FAIL) ==
+        WIFI_WATCHDOG_NONE);
+  CHECK(w.failingMs == 40000 - WD_POST_MS + WIFI_WATCHDOG_POST_GAP_MS);
+  restarts = 0;
+  uint32_t t = back + WD_POST_MS;
+  WifiWatchdogAction a = WIFI_WATCHDOG_NONE;
+  while (a == WIFI_WATCHDOG_NONE && t < back + 60000) {
+    t += WD_POST_MS;
+    a = wifiWatchdogUpdate(w, t, true, WIFI_POST_FAIL);
+  }
+  CHECK(a == WIFI_WATCHDOG_RESTART_WIFI);
+  CHECK(w.cause == WIFI_WATCHDOG_CAUSE_POSTS);
+  CHECK(w.failingMs >= WIFI_WATCHDOG_POST_RESTART_MS);
+  CHECK(w.failingMs < WIFI_WATCHDOG_POST_RESTART_MS + WD_POST_MS);
+}
+
+static void test_wifi_post_coarse_step_and_wraparound() {
+  // A streak that crosses the millis() wrap.
+  WifiWatchdog w;
+  wifiWatchdogInit(w, 0);
+  const uint32_t s = 0xFFFFFFFFUL - 7000UL;
+  int restarts = 0, reboots = 0;
+  wdPosts(w, s, s + WIFI_WATCHDOG_POST_RESTART_MS, WIFI_POST_FAIL, restarts,
+          reboots);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, s + WIFI_WATCHDOG_POST_RESTART_MS, true,
+                           WIFI_POST_FAIL) == WIFI_WATCHDOG_RESTART_WIFI);
+  wdPosts(w, s + WIFI_WATCHDOG_POST_RESTART_MS + WD_POST_MS,
+          s + WIFI_WATCHDOG_POST_REBOOT_MS, WIFI_POST_FAIL, restarts, reboots);
+  CHECK(restarts == 0);
+  CHECK(reboots == 0);
+  CHECK(wifiWatchdogUpdate(w, s + WIFI_WATCHDOG_POST_REBOOT_MS, true,
+                           WIFI_POST_FAIL) == WIFI_WATCHDOG_REBOOT);
+}
+
+// ---------------------------------------------------------------------------
 
 int main() {
   test_seat_constants_match_doc();
@@ -1861,6 +2265,24 @@ int main() {
   test_server_url_rejects_hostnames_and_bad_urls();
   test_box_token_accepts_hex_and_allowed_chars();
   test_box_token_rejects_empty_placeholder_and_bad_chars();
+  test_wifi_watchdog_ladder_order();
+  test_wifi_watchdog_quiet_while_connected();
+  test_wifi_watchdog_restart_once_then_reboot();
+  test_wifi_watchdog_never_joined_since_boot();
+  test_wifi_watchdog_reconnect_resets_ladder();
+  test_wifi_watchdog_blips_never_trigger();
+  test_wifi_watchdog_survives_millis_wraparound();
+  test_wifi_watchdog_link_second_ladder_if_reboot_did_not_happen();
+  test_wifi_watchdog_connected_exactly_at_threshold();
+  test_wifi_watchdog_coarse_step_past_reboot();
+  test_wifi_post_constants_order();
+  test_wifi_post_result_from_code();
+  test_wifi_post_restart_then_reboot();
+  test_wifi_post_any_http_code_resets_streak();
+  test_wifi_post_no_escalation_without_attempts();
+  test_wifi_post_streak_survives_its_own_wifi_restart();
+  test_wifi_post_and_link_ladders_together();
+  test_wifi_post_coarse_step_and_wraparound();
 
   printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

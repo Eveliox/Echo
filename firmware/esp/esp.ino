@@ -39,6 +39,7 @@ static_assert(boxTokenIsUsable(ECHO_BOX_TOKEN),
 
 #include "line_reader.h"
 #include "server_url.h"
+#include "wifi_watchdog.h"
 
 const unsigned long SERIAL_BAUD = 115200UL;  // same as the Mega's Serial1
 
@@ -76,6 +77,10 @@ unsigned long lastWifiLog = 0;
 unsigned long forwarded = 0;
 unsigned long failed = 0;
 bool serverUrlOk = false;  // set in setup() from server_url.h
+WifiWatchdog watchdog;      // when to kick Wi-Fi after an outage; see wifi_watchdog.h
+// How the last POST went, for the watchdog on the next loop. A POST that is
+// never sent (bad URL) stays NONE: rebooting would not fix the config.
+WifiPostResult lastPost = WIFI_POST_NONE;
 
 // Log lines start with '#', never '{', so nothing that reaches the Mega's RX1
 // looks like a status line.
@@ -103,6 +108,8 @@ void forward(const char *line) {
   http.addHeader("X-Echo-Token", ECHO_BOX_TOKEN);
   int code = http.POST((const uint8_t *)line, strlen(line));
   http.end();
+  // Any HTTP status, even an error one, proves the link to the server works.
+  lastPost = wifiPostResultFromCode(code);
   if (code == 200) {
     forwarded++;
   } else {
@@ -122,9 +129,53 @@ void watchWifi() {
     logLine(msg);
   } else if (!connected && millis() - lastWifiLog >= WIFI_LOG_MS) {
     lastWifiLog = millis();
-    logLine("Wi-Fi down, dropping lines until it is back");
+    char msg[80];
+    snprintf(msg, sizeof msg,
+             "Wi-Fi down (status %d, %lu failed), dropping lines until it is back",
+             (int)WiFi.status(), failed);
+    logLine(msg);
   }
   wasConnected = connected;
+
+  // The core's auto-reconnect alone did not rejoin the hotspot on the bench,
+  // and a hidden hotspot can leave it "connected" with every POST failing,
+  // so escalate after either lasts too long (ladders and timings in
+  // wifi_watchdog.h). Neither step waits for Wi-Fi to come back.
+  WifiPostResult post = lastPost;
+  lastPost = WIFI_POST_NONE;
+  WifiWatchdogAction action = wifiWatchdogUpdate(watchdog, millis(), connected, post);
+  if (action == WIFI_WATCHDOG_NONE) return;
+  bool posts = watchdog.cause == WIFI_WATCHDOG_CAUSE_POSTS;
+  unsigned long afterS =
+      (action == WIFI_WATCHDOG_REBOOT
+           ? (posts ? WIFI_WATCHDOG_POST_REBOOT_MS : WIFI_WATCHDOG_REBOOT_MS)
+           : (posts ? WIFI_WATCHDOG_POST_RESTART_MS : WIFI_WATCHDOG_RESTART_MS)) /
+      1000UL;
+  char msg[96];
+  snprintf(msg, sizeof msg, "%s %lu s (status %d, %lu failed): %s",
+           posts ? "POSTs failing" : "Wi-Fi down", afterS, (int)WiFi.status(),
+           failed,
+           action == WIFI_WATCHDOG_REBOOT ? "rebooting ESP" : "restarting Wi-Fi");
+  logLine(msg);
+  switch (action) {
+    case WIFI_WATCHDOG_RESTART_WIFI:
+      // Radio off and back on, then join again. Each mode change waits for
+      // the radio (normally ~100 ms, at most 1 s); this runs at most once per
+      // outage or failing streak, and nothing is getting through meanwhile.
+      WiFi.disconnect();
+      WiFi.mode(WIFI_OFF);
+      WiFi.mode(WIFI_STA);
+      WiFi.setAutoReconnect(true);  // as in setup()
+      WiFi.begin(ECHO_WIFI_SSID, ECHO_WIFI_PASSWORD);
+      break;
+    case WIFI_WATCHDOG_REBOOT:
+      // The ESP holds no alarm state; the Mega keeps alarming without it.
+      Serial.flush();  // let the log line out first (a few ms)
+      ESP.restart();
+      break;
+    default:
+      break;
+  }
 }
 
 void setup() {
@@ -145,6 +196,7 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(ECHO_WIFI_SSID, ECHO_WIFI_PASSWORD);
+  wifiWatchdogInit(watchdog, millis());
 #endif
 }
 
