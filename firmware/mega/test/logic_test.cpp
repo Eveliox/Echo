@@ -17,6 +17,9 @@
 // The template, not the real (git-ignored) secrets.h: pins that its token
 // placeholder is one the ESP build refuses.
 #include "../../esp/secrets.example.h"
+// Challenger scenarios (#22): shared parser and runner, and the seed set.
+#include "challenger.h"
+#include "challenger_seed.h"
 
 static int g_checks = 0;
 static int g_failures = 0;
@@ -1486,6 +1489,132 @@ static void test_recording_matches_box_logic() {
 }
 
 // ---------------------------------------------------------------------------
+// Challenger scenarios (test/challenger.h, test/challenger_seed.h)
+// ---------------------------------------------------------------------------
+
+// Every seed is graded by the real logic.h; code decides pass or fail.
+static void test_challenger_seeds_match_expected() {
+  static ChallengerScenario sc;
+  CHECK(CHALLENGER_SEED_COUNT >= 10);
+  for (int i = 0; i < CHALLENGER_SEED_COUNT; i++) {
+    const ChallengerSeed &seed = CHALLENGER_SEEDS[i];
+    const char *why = challengerParseFields(sc, seed.name, strlen(seed.name), seed.expected,
+                                            strlen(seed.expected), seed.presence, strlen(seed.presence),
+                                            seed.tempF, strlen(seed.tempF));
+    CHECK(why == NULL);
+    if (why) {
+      printf("  seed \"%s\" invalid: %s\n", seed.name, why);
+      continue;
+    }
+    ChallengerResult r = challengerRun(sc);
+    CHECK(r.finalLevel == sc.expected);
+    if (r.finalLevel != sc.expected) {
+      printf("  seed \"%s\": expected %s, box ends in %s\n", seed.name, alertLevelName(sc.expected),
+             alertLevelName(r.finalLevel));
+    }
+  }
+}
+
+// The seed set keeps covering every level the mapping can reach, and alarms
+// started by minutes to danger below the WARNING temperature.
+static void test_challenger_seeds_cover_levels() {
+  static ChallengerScenario sc;
+  int byLevel[LEVEL_EMERGENCY + 1] = {0, 0, 0, 0, 0};
+  int minsStarted[LEVEL_EMERGENCY + 1] = {0, 0, 0, 0, 0};
+  for (int i = 0; i < CHALLENGER_SEED_COUNT; i++) {
+    const ChallengerSeed &seed = CHALLENGER_SEEDS[i];
+    if (challengerParseFields(sc, seed.name, strlen(seed.name), seed.expected, strlen(seed.expected),
+                              seed.presence, strlen(seed.presence), seed.tempF,
+                              strlen(seed.tempF)) != NULL) {
+      continue;
+    }
+    byLevel[sc.expected]++;
+    ChallengerResult r = challengerRun(sc);
+    if (sc.expected >= LEVEL_WARNING && r.firstStep[sc.expected] >= 0 &&
+        sc.tempF[r.firstStep[sc.expected]] < WARNING_TEMP_F) {
+      minsStarted[sc.expected]++;
+    }
+  }
+  CHECK(byLevel[LEVEL_ARMED] > 0);
+  CHECK(byLevel[LEVEL_OCCUPANT] > 0);
+  CHECK(byLevel[LEVEL_WARNING] > 0);
+  CHECK(byLevel[LEVEL_EMERGENCY] > 0);
+  CHECK(minsStarted[LEVEL_WARNING] > 0);
+  CHECK(minsStarted[LEVEL_EMERGENCY] > 0);
+}
+
+static void test_challenger_parse_line_and_mapping() {
+  static ChallengerScenario sc;
+  CHECK(challengerParseLine(sc, "two steps\tARMED\t01\t80,81.5\r\n") == NULL);
+  CHECK(strcmp(sc.name, "two steps") == 0);
+  CHECK(sc.expected == LEVEL_ARMED);
+  CHECK(sc.steps == 2);
+  CHECK(!sc.presence[0] && sc.presence[1]);
+  CHECK(sc.tempF[0] == 80.0f && sc.tempF[1] == 81.5f);
+
+  // Ignition off from the first element: IDLE -> ARMED at step 0. The seat
+  // dwell runs on 2 s periods: occupied from step 0, OCCUPANT at the step
+  // OCCUPANT_AFTER_MS later, not one step sooner.
+  char line[256];
+  char presence[64];
+  char temps[160];
+  int dwellSteps = (int)(OCCUPANT_AFTER_MS / STATUS_PERIOD_MS);
+  CHECK(dwellSteps + 1 < (int)sizeof presence);
+  for (int i = 0; i <= dwellSteps; i++) presence[i] = '1';
+  presence[dwellSteps + 1] = '\0';
+  temps[0] = '\0';
+  for (int i = 0; i <= dwellSteps; i++) strcat(temps, i == 0 ? "70" : ",70");
+  snprintf(line, sizeof line, "dwell\tOCCUPANT\t%s\t%s", presence, temps);
+  CHECK(challengerParseLine(sc, line) == NULL);
+  ChallengerResult r = challengerRun(sc);
+  CHECK(r.firstStep[LEVEL_IDLE] == -1);
+  CHECK(r.firstStep[LEVEL_ARMED] == 0);
+  CHECK(r.firstStep[LEVEL_OCCUPANT] == dwellSteps);
+  CHECK(r.finalLevel == LEVEL_OCCUPANT);
+  CHECK(isnan(r.lastMinsToDanger));
+
+  sc.steps = (uint16_t)dwellSteps;  // one period short of the dwell
+  CHECK(challengerRun(sc).finalLevel == LEVEL_ARMED);
+}
+
+static void test_challenger_parse_rejects_invalid() {
+  static ChallengerScenario sc;
+  CHECK(challengerParseLine(sc, "x\tOCCUPANT\t01\t80") != NULL);          // lengths differ
+  CHECK(challengerParseLine(sc, "x\tOCCUPANT\t0\t80,81") != NULL);        // lengths differ
+  CHECK(challengerParseLine(sc, "x\tOCCUPANT\t02\t80,81") != NULL);       // presence not 0/1
+  CHECK(challengerParseLine(sc, "x\tHOT\t01\t80,81") != NULL);            // unknown level
+  CHECK(challengerParseLine(sc, "x\toccupant\t01\t80,81") != NULL);       // names are exact
+  CHECK(challengerParseLine(sc, "x\tARMED\t01\t80,nan") != NULL);         // not finite
+  CHECK(challengerParseLine(sc, "x\tARMED\t01\t80,inf") != NULL);         // not finite
+  CHECK(challengerParseLine(sc, "x\tARMED\t01\t80,999") != NULL);         // out of range
+  CHECK(challengerParseLine(sc, "x\tARMED\t01\t80,-5") != NULL);          // out of range
+  CHECK(challengerParseLine(sc, "x\tARMED\t01\t80,,81") != NULL);         // empty number
+  CHECK(challengerParseLine(sc, "x\tARMED\t01\t80,81,") != NULL);         // trailing comma
+  CHECK(challengerParseLine(sc, "x\tARMED\t01\t80,81x") != NULL);         // junk
+  CHECK(challengerParseLine(sc, "x\tARMED\t\t") != NULL);                 // no steps
+  CHECK(challengerParseLine(sc, "\tARMED\t0\t80") != NULL);               // empty name
+  CHECK(challengerParseLine(sc, "x\tARMED\t0") != NULL);                  // 3 fields
+  CHECK(challengerParseLine(sc, "x\tARMED\t0\t80\textra") != NULL);       // 5 fields
+
+  // Longer than CHALLENGER_MAX_STEPS is invalid; exactly the cap is fine.
+  static char line[CHALLENGER_MAX_STEPS * 4 + 64];
+  for (int extra = 0; extra <= 1; extra++) {
+    int n = CHALLENGER_MAX_STEPS + extra;
+    int len = snprintf(line, sizeof line, "cap\tARMED\t");
+    for (int i = 0; i < n; i++) line[len++] = '0';
+    line[len++] = '\t';
+    for (int i = 0; i < n; i++) {
+      if (i > 0) line[len++] = ',';
+      line[len++] = '8';
+      line[len++] = '0';
+    }
+    line[len] = '\0';
+    const char *why = challengerParseLine(sc, line);
+    CHECK(extra == 0 ? why == NULL : why != NULL);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ESP8266 line reader (firmware/esp/line_reader.h)
 // ---------------------------------------------------------------------------
 
@@ -2249,6 +2378,10 @@ int main() {
   test_status_line_mins_to_danger_number_or_null();
   test_lcd_line2_shows_computed_minutes();
   test_recording_matches_box_logic();
+  test_challenger_seeds_match_expected();
+  test_challenger_seeds_cover_levels();
+  test_challenger_parse_line_and_mapping();
+  test_challenger_parse_rejects_invalid();
   test_line_reader_keeps_json_line_without_crlf();
   test_line_reader_returns_true_only_on_newline();
   test_line_reader_drops_lines_not_starting_with_brace();

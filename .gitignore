@@ -9,3 +9,6 @@ app/node_modules/
 app/.expo/
 app/dist/
 app/config.local.js
+
+# Challenger output (simulator/challenger.js): generated scenarios stay local
+simulator/challenger/*.generated.*

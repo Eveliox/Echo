@@ -209,3 +209,28 @@ For Eve:
 - Before turning on ECHO_BOX_TOKEN anywhere, the box's ESP must run the #17 firmware and her server/.env must hold the same token as the box's secrets.h.
 - Follow-up in server/ (safety-critical, so out of #17's scope): server/auth.js startup text and server/env.example still describe #17 as pending; auth.test.js asserts /#17/ on that text.
 - #16's unchecked doc item: docs/firmware.md doesn't mention the X-Echo-Token header yet (needs David's OK; it's a header, not a status field).
+
+## 2026-10-10 (David, #22 Challenger, plus open items for David and Eve)
+
+#22 committed as review-pending (issue stays open):
+- 15 seed scenarios in firmware/mega/test/challenger_seed.h run in logic-test and all pass. They are still marked "PENDING HUMAN REVIEW (David)", which the ticket requires before sign-off. The reviewer agent re-derived all 15 against docs/firmware.md and agrees, but that doesn't replace David's check.
+- Seeds that rest on logic.h decisions the doc doesn't state: #3 (exactly 30 s counts as the dwell), #11 (OCCUPANT is sticky), #12 (the dwell must be unbroken; a 1-period gap can't happen on the box, because seat detection needs 3 readings in a row). #7 and #8 reach their minutes-based level only at the 60th sample; add a few periods.
+- Manual commands: `node simulator/challenger.js --count 200` (needs GEMINI_API_KEY in server/.env; not set on David's laptop) and `--from <file>` (offline re-grade; the example gives 2 pass, 1 FAIL, 1 invalid, both deliberate).
+- Reviewer mediums to fix before the live run: a run where every Gemini batch fails exits 0 with 0/0/0, with no "requested N, got M"; scenario names starting with `#` are silently skipped by the harness. Lows: seed comments copy threshold numbers; abort on a non-retryable 4xx; move example.jsonl out of the results folder.
+
+Waiting on David (hardware, one session at the box):
+1. Re-flash the ESP with main (#17 token + #15 watchdog): unplug VIN and RX, upload over USB, then RX + VIN back (power-cycle before testing). Restart the server ("box token auth: on"); dashboard updates every 2 s; curl without the token gets 401.
+2. #15 hotspot recovery: hotspot off about 60 s and about 3 min; the laptop leaves and returns; server stopped (slow 3-min cycle). Statuses resume without RST. Record the times here.
+3. #15 heat run: LM35 against a mug of hot water → WARNING/EMERGENCY with yellow/red, buzzer and siren; dashboard live; one ladder step-1 line (calls off); rename the log `real-<date>-<desc>.jsonl`. 2–3 runs for #14/#23.
+4. #13 battery divider check on pack power.
+5. #22 seed review, then the live 200+ run once a Gemini key is available.
+
+Waiting on Eve:
+- OK the battery values (7.0/9.0 V, 5.5 V no-pack cutoff, 0.7 V diode drop); remove "pending Eve's OK" in docs/firmware.md.
+- OK the 0.1-min rounding-before-compare rule for docs/firmware.md (#12).
+- Review the #12 changes to the synthetic recording (60 IDLE lines prepended; alarms now start on minutes).
+- Humidity nullable? Magenta seat-fault code in the docs' LED table?
+- Box token: don't enable ECHO_BOX_TOKEN until the box runs the #17 firmware with the same token. Follow-up: server/auth.js startup text and server/env.example still describe #17 as pending (auth.test.js asserts /#17/).
+- docs/firmware.md power note: when wired to the Mega, the ESP must run on Mega 5V → VIN (its USB holds RX high).
+- Pi 4 idea (stretch, needs the team): keep the Mega as the alarm; a Pi replaces or backs up the ESP, buffers statuses offline on SD, and uploads to Databricks.
+- Gemini key for the #22 live run (paid tier; budget alert).
