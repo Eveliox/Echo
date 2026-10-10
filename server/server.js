@@ -3,6 +3,7 @@
 //   GET  /status  { online, lastSeen, status } for the dashboard and app
 // Each new status also feeds the backup ladder (ladder.js). Calls only dial
 // with ECHO_CALLS=live; Twilio and contacts load from server/.env.
+// ECHO_PORT overrides the port (the smoke check runs its own server on a free one).
 
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
@@ -49,6 +50,18 @@ export function createServer({ tracker = createTracker() } = {}) {
   });
 }
 
+// The port to listen on: ECHO_PORT if set, else PORT. A bad value throws
+// rather than silently falling back to the box's port.
+export function listenPort(env = process.env) {
+  const raw = env.ECHO_PORT;
+  if (raw === undefined || raw === '') return PORT;
+  const port = Number(raw);
+  if (!/^\d+$/.test(raw) || port < 1 || port > 65535) {
+    throw new Error(`ECHO_PORT must be a port number 1-65535, got "${raw}"`);
+  }
+  return port;
+}
+
 // Feeds every new status from `tracker` into the backup ladder.
 export function attachLadder(tracker, { config, dial, log, logError } = {}) {
   const call = createCaller({ config, dial, log, logError });
@@ -59,11 +72,12 @@ export function attachLadder(tracker, { config, dial, log, logError } = {}) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   loadEnv();
+  const port = listenPort();
   const config = readConfig();
   const tracker = createTracker();
   attachLadder(tracker, { config });
-  createServer({ tracker }).listen(PORT, () => {
-    console.log(`Echo server listening on port ${PORT}`);
+  createServer({ tracker }).listen(port, () => {
+    console.log(`Echo server listening on port ${port}`);
     // Missing settings are loud but don't stop the server: status tracking still matters.
     const calls = callsStartupMessage(config);
     (calls.level === 'error' ? console.error : console.log)(calls.text);

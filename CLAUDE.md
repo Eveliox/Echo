@@ -51,7 +51,7 @@ The single source of truth for build, test, lint, and smoke. Skills and agents r
 | server | `node --test "server/test/*.test.js"` | Node built-ins only, no npm install. Tests use a random port, never 3000 |
 | app | TODO | |
 | lint | TODO | |
-| smoke | TODO | Must replay a recording through the server end to end with `ECHO_CALLS=off` set in the command, and exit non-zero on failure. Never places real calls |
+| smoke | `node --test "simulator/test/*.test.js" && ECHO_CALLS=off node simulator/smoke.js` | Must replay a recording through the server end to end with `ECHO_CALLS=off` set in the command, and exit non-zero on failure. Never places real calls |
 
 Reading the table:
 

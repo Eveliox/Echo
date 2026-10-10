@@ -1,0 +1,5 @@
+{
+  "name": "echo-simulator",
+  "private": true,
+  "type": "module"
+}

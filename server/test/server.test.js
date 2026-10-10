@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer, PORT } from '../server.js';
+import { createServer, listenPort, PORT } from '../server.js';
 import { createTracker, OFFLINE_AFTER_MS } from '../status.js';
 
 let t = 0;
@@ -82,6 +82,15 @@ test('box goes offline after the silence window and back online on the next stat
 
 test('the box posts to port 3000 (importing server.js does not listen)', () => {
   assert.equal(PORT, 3000);
+});
+
+test('ECHO_PORT overrides the port; unset or empty keeps 3000; a bad value throws', () => {
+  assert.equal(listenPort({}), 3000);
+  assert.equal(listenPort({ ECHO_PORT: '' }), 3000);
+  assert.equal(listenPort({ ECHO_PORT: '4123' }), 4123);
+  for (const bad of ['abc', '0', '65536', '-1', '3000.5', ' 3001', '0x10']) {
+    assert.throws(() => listenPort({ ECHO_PORT: bad }), /ECHO_PORT/, bad);
+  }
 });
 
 test('unknown paths are 404', async () => {
