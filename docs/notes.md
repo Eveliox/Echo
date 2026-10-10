@@ -118,3 +118,19 @@ ElevenLabs voice (#19), full steps in `server/voice/agent.md`:
 - Eve confirmed the emergency demo dialer opens the configured teammate number without calling and approved the updated emergency layout (number, chart, buttons: "yes perfect"). Offline Call Mom was confirmed in the preceding check.
 - Phone checks now cover Home → Live alert → offline, acknowledgement logging and persistent feedback, both dialer buttons, and user approval of the design refinements based on the supplied references. Preserve the agreed dark Home/offline and red emergency treatment.
 - #20 is ready to close. Follow-up UI, lockfile, tests, and notes remain uncommitted. Next ticket: #21 Agent feed and names-only Contacts in fixed ladder order.
+
+## 2026-10-10 (#21 Agent feed and Contacts)
+
+- Added Car/Feed/Contacts tabs. Activity merges action-log records with actual adjacent history level changes, newest first, retaining exact reasons and avoiding invented call/transcript claims. Contacts shows server names in fixed ladder order, with the required earlier-never-later agent copy.
+- GET /contacts returns only order/name; rejects writes. Actions and contacts poll independently every 2 s, retain saved records with explicit unavailable text, and cannot change car freshness. A persistent emergency banner on non-Car tabs returns to the red alert. No new dependencies.
+- Validation: app17, server221, Expo lint and iOS/Android exports pass; independent review found no issues. Final baseline test gate is running.
+- Restarted local server with ECHO_CALLS=off, Gemini/voice disabled for phone checks; /contacts confirmed names-only in configured order. Expo reports phone disconnected; asked Eve to reopen and verify tabs/Contacts before replay. Manual one-poll feed timing and native layout still pending. Changes uncommitted, #21 open.
+
+- #21 final test-gate APPROVE against main@9d7f097: both firmware builds and logic checks pass, server218→221 and app10→17; no regressions or tampering. Root lint row/smoke skipped in ticket gate; Expo lint separately passed. Phone verification remains pending.
+
+- #21 phone: Eve confirmed tabs and Contacts order after reopening Expo ("perfect"). Starting accelerated synthetic replay to verify feed updates and emergency-banner navigation; calls remain off.
+
+## 2026-10-10 (#21 phone verification complete)
+
+- Eve confirmed the Feed replay check and emergency-banner navigation ("perfect"): newest-first alert/action entries appeared within the polling interval, and the banner returned to the red Car screen. Tabs and Contacts order were confirmed in the preceding check. Calls remained disabled.
+- #21 acceptance checks complete: reviewer found no issues, baseline gate approved with no regressions, app17/server221 tests and both Expo exports passed, and phone verification passed. Closing #21; implementation remains uncommitted.
