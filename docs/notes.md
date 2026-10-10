@@ -180,3 +180,19 @@ ElevenLabs voice (#19), full steps in `server/voice/agent.md`:
 - #23 reassigned from David to Eve. Parts 1-2 done: the notebook's last section builds `insights_payload` and writes `insights.json` to the `export_path` widget (and prints it); the app's Insights tab reads `app/assets/insights.json` instead of hard-coded values. The committed file is the design example (92°F, afternoon, 14 min), marked "Design example: no Databricks run yet" and "(not from a real heat test)". `real` is true only if every run the model used is `real-*`. Only `headline.minutes` is a prediction; the arc points are a run's logged temperatures.
 - Waiting on David: #15 (real box → ESP → server) and 2-3 real heat tests. Then: rename the logs `real-<date>-<desc>.jsonl`, upload them to a Databricks Volume (sim logs removed from that folder), set `log_dir`, `timezone`, `export_path`, Run all, paste the printed JSON into `app/assets/insights.json`, run the app check (passes with no test edits), reload Expo. The notebook has never run in Databricks yet; that first run is its real test.
 - Optional, not done: make `insights_payload` refuse fewer than 2 points or minutes over 600 so a bad export fails in Databricks instead of at the app check.
+
+## 2026-10-10 (David, ESP on the box: #5 / #15)
+
+Box → ESP → hotspot → laptop server works (#15 item 1, minus the hotspot-drop recovery):
+- New data micro-USB cables: both NodeMCUs enumerate as CP2102 (`/dev/cu.usbserial-*`); the old cable was power-only. macOS 12 has the CP2102 driver built in.
+- `firmware/esp/secrets.h` (git-ignored) holds the iPhone hotspot and `http://172.20.10.2:3000/status`. The ESP joined as 172.20.10.8. UCF_Guest won't work: 5 GHz on the Mac, likely a per-device sign-in and client isolation.
+- Divider built from three 1kΩ (Mega TX1 18 → 1k → ESP RX, RX → 1k → 1k → − rail), ESP G → Mega GND.
+- First run: the server received a status every 2.02 s (median, 1.76–4.05 s, 20 statuses, one skipped).
+
+Found on the bench (fix or document):
+- With the ESP's own USB plugged in, its USB chip holds RX high and the Mega's lines never arrive. Wired to the Mega, the ESP must run on Mega 5V → VIN with its USB unplugged. docs/firmware.md "Power" says "its own USB cable" for building and testing; that only works with the RX wire off. Needs a one-line doc fix.
+- Wiring ESP VIN to the Mega's 5V appears to have restarted the Mega, which retook the seat baseline with something close (presence never flipped, even at 2–3 cm). Re-aimed at about 45 cm and pressed reset: fixed. Before a run, aim at 30–60 cm and reset with hands clear.
+- iPhone hotspot: when the Mac left for another network, the hotspot stopped broadcasting and the ESP never rejoined, even after the Mac came back and the Personal Hotspot screen was opened. Only pressing the ESP's RST brought it back (about 18 min of statuses lost). #15 needs "recovers after the hotspot drops": add an ESP Wi-Fi watchdog (if not connected for about 30 s, restart Wi-Fi or the ESP), with a test for its timing helper.
+- #17: the ESP doesn't send X-Echo-Token yet. Keep ECHO_BOX_TOKEN unset in server/.env until #17 lands, or every box status gets 401.
+
+Still open for #15: WARNING/EMERGENCY on hardware (this session's log peaked at 85.7 °F; next time use the LM35 against a mug of hot water) with the yellow/red/buzzer/siren checks, the dashboard during that run, the `real-*.jsonl` log for #14/#23 (2–3 runs), and the #13 battery check. Today's room-temperature log (544 lines, ARMED/OCCUPANT only) is on David's Desktop, not in git; it isn't a heat test.
