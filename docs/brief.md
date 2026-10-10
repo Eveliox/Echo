@@ -74,7 +74,7 @@ When the box hits Emergency, the agent phones the parent, talks with them live, 
 3. Gemini gets the parent's words plus live car data and picks one tool.
 4. If the AI fails mid-call, Twilio plays a fixed recorded message, and the backup ladder keeps calling on schedule.
 
-**Tools:** `get_car_status()`, `place_call(contact, message)`, `send_message(contact, message)`, `log_action(note)`.
+**Tools:** `get_car_status()`, `place_call(contact, message)`, `log_action(note)`. (`send_message` was dropped on Oct 10 with the Telegram ticket #24: calls are the alert channel.)
 
 **Why calls, not texts:** US carriers block texts from unregistered numbers, and registration takes weeks. Voice is the main channel; written messages go through a Telegram bot or app push notifications. A call from a saved emergency contact can also break through Do Not Disturb.
 

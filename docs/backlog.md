@@ -209,7 +209,7 @@ Owner: David (hw) · Size: S · Depends on: 20, 15 · Issue: #23
 Proven by: app, manual check
 
 
-### 24. server: send_message through a Telegram bot
+### 24. server: send_message through a Telegram bot (DROPPED by Eve, 2026-10-10: calls are the alert channel; send_message removed from the agent, which now has three tools)
 Owner: David (hw) · Size: S · Depends on: none · Issue: #24
 - [ ] A `sendTelegram(contactName, text)` module posts to that contact's chat; the bot token and chat ids load from `.env` (placeholders in `env.example`, added to smoke's blank list); setup: each contact sends `/start` to the bot to get a chat id
 - [ ] Nothing is sent unless `ECHO_CALLS === 'live'` (the same check as `readConfig`); otherwise it's only logged. Errors are logged as a status code and fixed text, never `err.message` or the URL (the URL contains the token)
