@@ -134,3 +134,38 @@ ElevenLabs voice (#19), full steps in `server/voice/agent.md`:
 
 - Eve confirmed the Feed replay check and emergency-banner navigation ("perfect"): newest-first alert/action entries appeared within the polling interval, and the banner returned to the red Car screen. Tabs and Contacts order were confirmed in the preceding check. Calls remained disabled.
 - #21 acceptance checks complete: reviewer found no issues, baseline gate approved with no regressions, app17/server221 tests and both Expo exports passed, and phone verification passed. Closing #21; implementation remains uncommitted.
+
+## 2026-10-10 (visual polish after #21)
+
+- User requested a cleaner, modern visual pass with discretion for design improvements. Added Echo logo header, warm dark surfaces, crisp line icons, level-colored decorative halo, sensor tiles, icon navigation with selected pill, contact initial avatars, clearer timeline cards, and SVG measured/forecast chart. Emergency remains red; all values, polling, contact order, acknowledgement and dialer behavior preserved.
+- Added Expo-compatible react-native-svg (icons/chart/halo) and react-native-safe-area-context (device notch/home indicator positioning); no router or server changes. Shared visual components in app/src/ui.js. Gentle online-dot pulse respects Reduce Motion; press feedback is subtle.
+- Validation: all17 app tests, Expo lint, iOS/Android exports, npm ci dry-run lockfile validation and diff whitespace check pass. Expo reloaded to phone; no local simulator available, so native visual inspection of this polish awaits user feedback. Changes uncommitted.
+
+## 2026-10-10 (quieter styling and logo launch)
+
+- Eve disliked the boxed offline pill and asked for the Echo logo before the page. Removed status-pill backgrounds/borders, selected-tab containers, the header tagline, timeline-card fills, and notice boxes; retained icons, typography, and clear selected-tab color.
+- Added a logo-only startup cover: normal reveal after roughly 0.9s once fonts/image are ready, capped wait1.8s; 260ms fade, no animation with Reduce Motion. Polling starts behind it; a live emergency bypasses it immediately. Introduction does not repeat when changing tabs or returning from the phone dialer.
+- Added Expo splash-screen plugin with logo/dark background for installed builds. Expo Go still has its own pre-JavaScript loader; the matching in-app introduction is visible there. Native splash needs a release build to verify.
+- New plain-JS launch tests cover minimum display, stalled assets, and emergency bypass;20 app tests pass. Native visual review remains with Eve.
+
+- Eve reported the logo introduction did not render properly. Corrected timing: hold native splash until the in-app image is loaded and laid out, hide native splash, then start the visible pause on the next frame. Replaced nested percentage image sizing with explicit240×80 sizing; fade400ms. Emergency bypass preserved. Added regression for loader time not consuming the logo pause;21 app tests and both platform exports pass. Full Expo reload requested for phone verification; symptom detail still awaiting reply.
+
+- Logo-at-bottom root cause confirmed: installed React Native0.86 removed StyleSheet.absoluteFillObject; spreading undefined silently left LaunchCover in normal flex flow below the page. Replaced with explicit absolute position plus all four edges0. Earlier timing fix alone did not address this layout bug. Phone centering verification pending.
+
+## 2026-10-10 (Heat Insights design preview)
+
+- Eve requested a polished heat visualization ahead of real Databricks data. Added an Insights tab with an amber-to-rose SVG curve, atmospheric contour lines, large example14-minute readout, selectable start/7/14-minute points, and example temperature/humidity/time/warming-rate inputs. Simple dividers and underlined selections replace pills. Four-tab navigation now stacks icons above labels.
+- Preview is explicitly illustrative and marked “(not from a real heat test)”; the screen states real tests are pending and current logs are simulator replays. Its local design fixture is not a notebook export and receives no live status. Databricks integration/#23 remains pending. Live emergency navigation remains available above Insights.
+- Checks: app21/21, Expo lint, iOS and Android exports, and diff whitespace all pass. Typecheck not applicable: plain JS project without tsconfig. Manual phone check pending: open Insights, tap all three curve times, check narrow-screen wrapping and scroll, then verify an emergency banner returns to Car. No added dependencies for this preview.
+
+## 2026-10-10 (warm weather reference for Insights)
+
+- Eve supplied a peach/yellow/orange weather UI and asked to see it on Echo. Adapted Insights to full-screen SVG atmospheric gradients, dark ink typography, oversized Doto numbers, interactive sun-marker timeline arc, and translucent warming/humidity panels with decorative bars/dots. Navigation and status bar use dark text on this tab. The arc represents example time progression, not a temperature plot; accessible description makes this explicit.
+- Sample labels and pending-real-data disclosure remain. No model/live sensor integration. No new dependencies. App21 tests, lint, both platform exports and whitespace checks pass; Expo reloaded. Phone visual confirmation pending, including text wrapping and emergency-banner visibility on the warm background. Typecheck not applicable to this plain-JS project.
+
+## 2026-10-10 (warm style across the app, original logo retained)
+
+- Eve approved the warm Insights page and requested the same style elsewhere while keeping Echo’s original logo. Moved the atmospheric SVG background into shared UI and applied it to Car/offline, Feed, Contacts, and Insights. Shared palette now uses dark brown text, peach/amber light, translucent cream panels, thin dividers, and dark navigation. Dotted sensor numbers remain; page headings use Outfit.
+- Replaced Insights’ temporary text wordmark with the original echo-logo.png; the asset also remains on every page and in the centered dark launch cover. Launch background stays explicitly dark to match native splash configuration.
+- Emergency Car retains distinct deep red with explicit cream text/chart labels/buttons and navigation; emergency banners on other tabs retain their dark background and light copy. Offline readings remain visibly muted, with increased opacity for readability on the warm background. No polling, action, dialer, sensor, or data behavior changed.
+- Checks: all21 app tests, Expo lint, iOS/Android exports, and whitespace pass. Plain JS/no tsconfig, so typecheck not applicable. Expo reloaded for phone review; visual confirmation of all tabs and emergency contrast pending. No new dependencies.
