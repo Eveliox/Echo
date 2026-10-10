@@ -174,3 +174,9 @@ ElevenLabs voice (#19), full steps in `server/voice/agent.md`:
 
 - Eve requested the warm gradient behind the pre-reveal Echo logo. LaunchCover now reuses WarmBackground, retaining the original centered logo, pause/fade, Reduce Motion behavior, and emergency bypass. Status bar uses dark content during normal launch. Native splash configuration uses matching peach as its solid background; the full gradient is in the JavaScript introduction (Expo Go owns its earlier loader).
 - Validation: app21 tests, Expo lint, and whitespace checks pass. No timing or data changes. Expo reloaded for visual verification.
+
+## 2026-10-10 (Eve, #23 Heat insights from the notebook)
+
+- #23 reassigned from David to Eve. Parts 1-2 done: the notebook's last section builds `insights_payload` and writes `insights.json` to the `export_path` widget (and prints it); the app's Insights tab reads `app/assets/insights.json` instead of hard-coded values. The committed file is the design example (92°F, afternoon, 14 min), marked "Design example: no Databricks run yet" and "(not from a real heat test)". `real` is true only if every run the model used is `real-*`. Only `headline.minutes` is a prediction; the arc points are a run's logged temperatures.
+- Waiting on David: #15 (real box → ESP → server) and 2-3 real heat tests. Then: rename the logs `real-<date>-<desc>.jsonl`, upload them to a Databricks Volume (sim logs removed from that folder), set `log_dir`, `timezone`, `export_path`, Run all, paste the printed JSON into `app/assets/insights.json`, run the app check (passes with no test edits), reload Expo. The notebook has never run in Databricks yet; that first run is its real test.
+- Optional, not done: make `insights_payload` refuse fewer than 2 points or minutes over 600 so a bad export fails in Databricks instead of at the app check.
