@@ -1,0 +1,4 @@
+# Secrets: Wi-Fi credentials, Twilio and Gemini keys
+.env
+.env.*
+firmware/esp/secrets.h
