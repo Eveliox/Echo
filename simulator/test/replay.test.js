@@ -1,7 +1,9 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { statusLines, replay, parseArgs, DEFAULT_URL, BOX_INTERVAL_MS } from '../replay.js';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { statusLines, replay, parseArgs, BOX_INTERVAL_MS } from '../replay.js';
 
 // A stub server that records each POST body and its arrival time, and answers
 // with `nextCodes` (then 200).
@@ -62,13 +64,33 @@ test('replay rejects when the server is unreachable', async () => {
   await assert.rejects(replay(['{"n":1}'], { url: `http://127.0.0.1:${port}/status`, intervalMs: 0 }));
 });
 
-test('CLI defaults to the box pace and localhost:3000; --interval-ms and --url override', () => {
+test('CLI requires --url, defaults to the box pace; --interval-ms overrides', () => {
   assert.equal(BOX_INTERVAL_MS, 2000);
-  assert.equal(DEFAULT_URL, 'http://localhost:3000/status');
-  assert.deepEqual(parseArgs(['rec.jsonl']), { file: 'rec.jsonl', url: DEFAULT_URL, intervalMs: 2000 });
+  assert.throws(() => parseArgs(['rec.jsonl']), /--url is required/);
+  assert.deepEqual(parseArgs(['rec.jsonl', '--url', 'http://x/status']),
+    { file: 'rec.jsonl', url: 'http://x/status', intervalMs: 2000 });
   assert.deepEqual(parseArgs(['--interval-ms', '20', 'rec.jsonl', '--url', 'http://x/status']),
     { file: 'rec.jsonl', url: 'http://x/status', intervalMs: 20 });
   for (const bad of [[], ['--interval-ms', 'fast', 'r'], ['r', 'extra'], ['--bogus', 'r'], ['r', '--url']]) {
     assert.throws(() => parseArgs(bad), undefined, bad.join(' '));
   }
+});
+
+test('replay() without a url rejects before posting', async () => {
+  received.length = 0;
+  await assert.rejects(replay(['{"n":1}'], { intervalMs: 0 }), /needs a url/);
+  assert.equal(received.length, 0);
+});
+
+test('the CLI without --url exits non-zero with the usage and posts nothing', () => {
+  received.length = 0;
+  // A path that doesn't exist: if a default URL ever comes back, this run fails
+  // on the missing file instead of posting a real EMERGENCY recording to it.
+  const recording = fileURLToPath(new URL('../recordings/does-not-exist.jsonl', import.meta.url));
+  const replayJs = fileURLToPath(new URL('../replay.js', import.meta.url));
+  const run = spawnSync(process.execPath, [replayJs, recording, '--interval-ms', '0'], { encoding: 'utf8', timeout: 10_000 });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /usage: .*--url URL/);
+  assert.match(run.stderr, /--url is required/);
+  assert.doesNotMatch(run.stdout, /replay: \d/, 'nothing was posted');
 });

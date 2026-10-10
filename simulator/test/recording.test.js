@@ -6,12 +6,16 @@ import { statusLines } from '../replay.js';
 import { DEFAULT_RECORDING } from '../smoke.js';
 
 // The level rules come from the firmware's own constants, not copies.
-const logic = readFileSync(new URL('../../firmware/mega/logic.h', import.meta.url), 'utf8');
-const constant = (name) => {
-  const m = logic.match(new RegExp(`\\b${name}\\s*=\\s*([0-9.]+)`));
-  assert.ok(m, `${name} not found in logic.h`);
+// Only a plain numeric literal ending the statement counts (`= 30000UL;`,
+// `= 95.0f;`); anything else, like `30 * 1000UL` or `30e3`, throws instead of
+// being misread.
+function parseConstant(source, name) {
+  const m = source.match(new RegExp(`\\b${name}\\s*=\\s*([0-9]+(?:\\.[0-9]+)?)[fFuUlL]*\\s*;`));
+  if (!m) throw new Error(`${name}: no plain numeric literal assignment found in logic.h`);
   return Number(m[1]);
-};
+}
+const logic = readFileSync(new URL('../../firmware/mega/logic.h', import.meta.url), 'utf8');
+const constant = (name) => parseConstant(logic, name);
 const OCCUPANT_AFTER_MS = constant('OCCUPANT_AFTER_MS');
 const STATUS_PERIOD_MS = constant('STATUS_PERIOD_MS');
 const WARNING_TEMP_F = constant('WARNING_TEMP_F');
@@ -64,4 +68,18 @@ test('it ends in EMERGENCY held for several statuses, so the ladder dedup is exe
   const emergency = firstOf('EMERGENCY');
   assert.ok(statuses.length - emergency >= 3);
   assert.ok(statuses.slice(emergency).every((s) => s.state === 'EMERGENCY'));
+});
+
+test('the logic.h constant parser reads plain literals and rejects anything else', () => {
+  const src = (rhs) => `static const uint32_t X = ${rhs};`;
+  assert.equal(parseConstant(src('30000UL'), 'X'), 30000);
+  assert.equal(parseConstant(src('2000UL'), 'X'), 2000);
+  assert.equal(parseConstant(src('95.0f'), 'X'), 95);
+  assert.equal(parseConstant(src('104.0f'), 'X'), 104);
+  assert.equal(parseConstant(src('7'), 'X'), 7);
+  for (const rhs of ['30 * 1000UL', '30e3', '30e3f', '0x7530', 'X_OTHER', '30000UL + 1']) {
+    assert.throws(() => parseConstant(src(rhs), 'X'), /X: no plain numeric literal/, rhs);
+  }
+  assert.throws(() => parseConstant(src('5'), 'MISSING'), /MISSING/);
+  assert.throws(() => parseConstant('static const float XY = 5.0f;', 'X'), /X:/, 'whole names only');
 });

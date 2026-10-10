@@ -1,6 +1,8 @@
 // Replays a recorded box session to the server, one status per POST, the way
 // the ESP8266 forwards the Mega's lines. Run from the repo root:
-//   node simulator/replay.js <recording.jsonl> [--url URL] [--interval-ms N]
+//   node simulator/replay.js <recording.jsonl> --url URL [--interval-ms N]
+// --url is required, with no default, so a replay never lands on a live
+// server by accident.
 // A recording is the Mega's Serial output: one status JSON object per line.
 // Lines that don't start with `{` (the Mega's `#` notes, blanks) are skipped,
 // as the ESP does. Each line is posted as-is; the server validates it.
@@ -10,7 +12,8 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-export const DEFAULT_URL = 'http://localhost:3000/status';
+const USAGE = 'usage: node simulator/replay.js <recording.jsonl> --url URL [--interval-ms N]\n'
+  + '  --url is required, e.g. http://127.0.0.1:3000/status';
 // The box's status period, docs/firmware.md "Data format and Wi-Fi".
 export const BOX_INTERVAL_MS = 2000;
 
@@ -24,10 +27,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Posts each line to `url`, the first at once and the rest every `intervalMs`
 // from the start (no drift). Resolves to the number of lines posted; rejects
 // on the first non-2xx answer or network error. `onPost(index, line, res)` is
-// called after each successful post.
+// called after each successful post. `url` is required.
 export async function replay(lines, {
-  url = DEFAULT_URL, intervalMs = BOX_INTERVAL_MS, fetchFn = fetch, onPost = () => {},
+  url, intervalMs = BOX_INTERVAL_MS, fetchFn = fetch, onPost = () => {},
 } = {}) {
+  if (!url) throw new Error('replay needs a url');
   const start = Date.now();
   for (let i = 0; i < lines.length; i++) {
     const wait = start + i * intervalMs - Date.now();
@@ -49,7 +53,7 @@ export async function replay(lines, {
 
 // Parses CLI args into { file, url, intervalMs }. Throws on anything unknown.
 export function parseArgs(argv) {
-  const opts = { file: null, url: DEFAULT_URL, intervalMs: BOX_INTERVAL_MS };
+  const opts = { file: null, url: null, intervalMs: BOX_INTERVAL_MS };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--url') {
@@ -65,7 +69,7 @@ export function parseArgs(argv) {
       opts.file = arg;
     }
   }
-  if (!opts.file) throw new Error('usage: node simulator/replay.js <recording.jsonl> [--url URL] [--interval-ms N]');
+  if (!opts.file || !opts.url) throw new Error(USAGE);
   return opts;
 }
 

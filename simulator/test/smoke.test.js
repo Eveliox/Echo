@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { judge, refuseReason } from '../smoke.js';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { judge, refuseReason, childEnv, BLANKED_CALL_KEYS } from '../smoke.js';
+import { readConfig, missingCallSettings } from '../../server/calls.js';
 
 const last = {
   state: 'EMERGENCY', tempF: 110.5, humidity: 30, presence: true, distanceCm: 38,
@@ -35,4 +41,53 @@ test('fails when GET /status is offline, not EMERGENCY, or not the last status',
 test('refuses to run when ECHO_CALLS is live in its environment', () => {
   for (const value of ['live', 'LIVE', ' live ']) assert.match(refuseReason({ ECHO_CALLS: value }), /refusing/);
   for (const value of [undefined, 'off', '', 'lively']) assert.equal(refuseReason({ ECHO_CALLS: value }), null);
+});
+
+// Real-looking values, as a parent shell or server/.env might hold them.
+const realLooking = {
+  TWILIO_ACCOUNT_SID: 'fake-account-sid', TWILIO_AUTH_TOKEN: 'fake-auth-token',
+  TWILIO_FROM_NUMBER: '+15551230000', CONTACT1_NAME: 'Mom', CONTACT1_NUMBER: '+15551230001',
+};
+
+test('the child server env forces ECHO_CALLS=off and blanks the call settings, whatever the parent has', () => {
+  assert.deepEqual(BLANKED_CALL_KEYS.toSorted(), Object.keys(realLooking).toSorted());
+  for (const echoCalls of [undefined, 'off', 'live']) {
+    const env = childEnv({ ...realLooking, ECHO_CALLS: echoCalls, PATH: '/bin' }, 4123);
+    assert.equal(env.ECHO_CALLS, 'off');
+    assert.equal(env.ECHO_PORT, '4123');
+    assert.equal(env.PATH, '/bin');
+    for (const key of BLANKED_CALL_KEYS) assert.equal(env[key], '', key);
+  }
+});
+
+test('blanked settings survive a server/.env with real values, so nothing could dial', () => {
+  // The child process does what server.js does: load a .env, then read the config.
+  const dir = mkdtempSync(join(tmpdir(), 'echo-smoke-env-'));
+  const file = join(dir, '.env');
+  writeFileSync(file, Object.entries(realLooking).map(([k, v]) => `${k}=${v}`).join('\n') + '\n');
+  try {
+    const calls = fileURLToPath(new URL('../../server/calls.js', import.meta.url));
+    const script = `const { loadEnv, readConfig } = await import(${JSON.stringify(calls)});`
+      + `loadEnv(${JSON.stringify(file)}); console.log(JSON.stringify(readConfig()));`;
+    const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: childEnv(realLooking, 4123), encoding: 'utf8', timeout: 10_000,
+    });
+    assert.equal(run.status, 0, run.stderr);
+    const config = JSON.parse(run.stdout);
+    assert.equal(config.live, false);
+    assert.deepEqual(config.twilio, { accountSid: '', authToken: '', from: '' });
+    assert.deepEqual(config.contacts[0], { name: 'Contact #1', number: '' });
+    // Even if the live gate were bypassed, a call would be blocked as unconfigured.
+    assert.deepEqual(missingCallSettings({ ...config, live: true }),
+      ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER', 'CONTACT1_NUMBER']);
+    assert.equal(readConfig(childEnv(realLooking, 1)).contacts[0].number, '');
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test('the judge passes the would-call line for the blanked contact', () => {
+  const blanked = 'calls: [not live, ECHO_CALLS is not "live"] would call Contact #1 (number not set) '
+    + 'for emergency, ladder step 1: "This is Echo, an emergency alert."';
+  assert.deepEqual(judge({ output: [...startup, blanked], snapshot, lastStatus: last }), []);
 });

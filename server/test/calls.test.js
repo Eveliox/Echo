@@ -140,6 +140,20 @@ test('loadEnv reads a .env file without overriding variables already set', () =>
   }
 });
 
+test('loadEnv does not override a variable set to empty (smoke blanks call settings this way)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'echo-env-'));
+  const file = join(dir, '.env');
+  writeFileSync(file, 'ECHO_TEST_BLANKED=+15550000001\n');
+  process.env.ECHO_TEST_BLANKED = '';
+  try {
+    assert.equal(loadEnv(file, { log: () => {} }), true);
+    assert.equal(process.env.ECHO_TEST_BLANKED, '', 'an empty preset value wins over the file');
+  } finally {
+    delete process.env.ECHO_TEST_BLANKED;
+    rmSync(dir, { recursive: true });
+  }
+});
+
 test('loadEnv with no file logs and does not throw', () => {
   const logs = [];
   assert.equal(loadEnv('/nonexistent/echo/.env', { log: (m) => logs.push(m) }), false);

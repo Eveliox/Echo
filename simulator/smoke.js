@@ -5,7 +5,8 @@
 //
 // Safety: it never posts to a server it didn't start. It starts its own
 // `node server/server.js` on a free port with ECHO_CALLS=off forced in that
-// server's environment, refuses to run at all if ECHO_CALLS=live is set here,
+// server's environment and its Twilio and contact settings blanked, refuses to
+// run at all if ECHO_CALLS=live is set here,
 // and always stops the server, also on failure, timeout, or Ctrl-C.
 
 import { spawn } from 'node:child_process';
@@ -59,6 +60,22 @@ export function refuseReason(env) {
   return null;
 }
 
+// Call settings blanked for the child server. An empty variable already set in
+// the environment is not overridden by server/.env (process.loadEnvFile), so
+// even if the live gate broke, missingCallSettings would block any dial, and
+// the real contact never reaches smoke's output.
+export const BLANKED_CALL_KEYS = [
+  'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER', 'CONTACT1_NAME', 'CONTACT1_NUMBER',
+];
+
+// The child server's environment: the parent's, with ECHO_CALLS=off, the call
+// settings blanked, and the port set.
+export function childEnv(parentEnv, port) {
+  const env = { ...parentEnv, ECHO_CALLS: 'off', ECHO_PORT: String(port) };
+  for (const key of BLANKED_CALL_KEYS) env[key] = '';
+  return env;
+}
+
 function freePort() {
   return new Promise((resolve, reject) => {
     const probe = net.createServer();
@@ -85,8 +102,7 @@ function startServer(port) {
   let lastOutputAt = Date.now();
   child = spawn(process.execPath, [SERVER], {
     cwd: ROOT,
-    // ECHO_CALLS=off wins over anything inherited or in server/.env.
-    env: { ...process.env, ECHO_CALLS: 'off', ECHO_PORT: String(port) },
+    env: childEnv(process.env, port),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const exited = new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })));
