@@ -3,3 +3,9 @@
 .env.*
 firmware/esp/secrets.h
 server/logs/
+
+# Expo and local phone/server configuration
+app/node_modules/
+app/.expo/
+app/dist/
+app/config.local.js

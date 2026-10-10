@@ -49,7 +49,7 @@ The single source of truth for build, test, lint, and smoke. Skills and agents r
 | firmware-esp | `arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 firmware/esp` | |
 | logic-test | `g++ -std=c++17 -Wall -Wextra -Werror -I firmware/mega firmware/mega/test/logic_test.cpp -o "${TMPDIR:-/tmp}/echo_logic_test" && "${TMPDIR:-/tmp}/echo_logic_test"` | arduino-cli only compiles the sketch root and `src/`, so `test/` is ignored by the firmware build. The binary goes to a temp folder, never the repo |
 | server | `node --test "server/test/*.test.js"` | Node built-ins only, no npm install. Tests use a random port, never 3000 |
-| app | TODO | |
+| app | `node --test "app/test/*.test.js"` | Plain-JS app data, polling, and dialer helpers |
 | lint | TODO | |
 | smoke | `node --test "simulator/test/*.test.js" && ECHO_CALLS=off node simulator/smoke.js` | Must replay a recording through the server end to end with `ECHO_CALLS=off` set in the command, and exit non-zero on failure. Never places real calls |
 

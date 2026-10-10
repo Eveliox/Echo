@@ -3,6 +3,7 @@
 //   GET  /status  { online, lastSeen, status } for the dashboard and app
 //   GET  /history { entries: [{ receivedAt, status }] }, the last 10 minutes, oldest first
 //   GET  /actions { entries: [{ time, action, to, reason }] }, the ladder's action log, oldest first
+//   POST /on-my-way  fixed app note only; 4 KiB cap, one note per minute globally
 //   GET  /        the read-only dashboard page (dashboard.js, files in server/dashboard/)
 // Each new status also feeds the backup ladder (ladder.js). Calls only dial
 // with ECHO_CALLS=live; Twilio and contacts load from server/.env.
@@ -69,7 +70,10 @@ function requestPath(url) {
 export function createServer({
   tracker = createTracker(), history = createHistory(), statusLog = null, actions = createActionLog(),
   logError = console.error, boxToken = '', rejections = createRejectionLog({ log: logError }),
+  now = Date.now,
 } = {}) {
+  // Global cooldown needs constant memory and cannot be bypassed with invented client IDs.
+  let lastAcknowledged = -Infinity;
   const guard = (res, fn) => {
     try {
       fn();
@@ -87,6 +91,22 @@ export function createServer({
     if (path === '/actions') {
       if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
       return send(res, 200, { entries: actions.entries() });
+    }
+    if (path === '/on-my-way') {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
+      let size = 0;
+      req.on('data', (chunk) => { size = Math.min(MAX_BODY_BYTES + 1, size + chunk.length); });
+      req.on('error', () => { res.destroy(); }); // aborted uploads never log a note
+      req.on('end', () => guard(res, () => {
+        if (size > MAX_BODY_BYTES) return send(res, 413, { error: 'body too large' });
+        if (now() - lastAcknowledged < 60_000) {
+          return send(res, 429, { error: 'please wait before sending again' });
+        }
+        actions.record({ action: 'note', to: 'App', reason: "I'm on my way; alarm and backup calls continue." });
+        lastAcknowledged = now();
+        return send(res, 200, { ok: true });
+      }));
+      return;
     }
     if (path === '/history') {
       if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
