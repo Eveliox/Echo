@@ -246,3 +246,18 @@ For Eve:
 - Assets are no-store (~1.1 MB per page load, not per poll). Fine for the demo.
 
 To do (David, with a phone): the #25 side-by-side. Start a second server on port 3001 (ECHO_CALLS=off, ECHO_LOG_DIR in a temp folder), replay the synthetic recording into it with `--token` (server/.env now sets ECHO_BOX_TOKEN), then compare the laptop page and the app's Car tab through EMERGENCY.
+
+## 2026-10-10 (David, hardware: #17 and #15 recovery verified)
+
+The ESP was re-flashed with main (#17 box token + #15 Wi-Fi watchdog), then went back to Mega 5V → VIN with its USB unplugged.
+- Watchdog seen on the bench: with the hotspot hidden (Mac on UCF_Guest), the ESP logged `Wi-Fi down (status 1, …)`, then `Wi-Fi down 30 s (status 1, 0 failed): restarting Wi-Fi`. Once the hotspot was visible again it rejoined as 172.20.10.8 with no RST.
+- #17 manual check passed: the server started with `box token auth: on` (token in server/.env and secrets.h, both git-ignored). The box's statuses were accepted (online, live readings, zero box rejections), and a curl POST without the token got 401.
+- #15 "recovers after the hotspot drops" passed: hotspot off about 40 s, then on. Last status 22:55:03 UTC, offline 22:55:14, statuses resumed 22:55:53 (50 s gap overall, inside the ~100 s worst case), with nobody touching the ESP. This morning the same drop needed RST.
+- OCCUPANT → ARMED during the check was David pressing cancel, not a Mega restart.
+- Not run: the 3-minute drop (reboot path) and "server stopped while on the hotspot" (slow 3-min cycle). They're optional; the code paths are unit-tested.
+
+Still open for hardware (David):
+1. #15 heat run: LM35 against a mug of hot water → WARNING/EMERGENCY with yellow/red LED, buzzer, siren; dashboard live; exactly one ladder step-1 line (calls off). Rename the server log `real-<date>-<desc>.jsonl` (logs go to ~/Desktop/echo-logs while the server runs with ECHO_LOG_DIR there). 2–3 runs for #14/#23.
+2. #13 battery: fit the A0 divider (Mega VIN → 10k → A0 → 10k → GND), set BATTERY_DIVIDER_WIRED = true locally, pack in the barrel jack, laptop USB unplugged, siren keeps going, GET /status shows a numeric battery.
+3. #25 phone side-by-side (second server on 3001, replay with --token).
+4. #12 optional: watch minsToDanger count down and LCD line 2 during the heat run.
