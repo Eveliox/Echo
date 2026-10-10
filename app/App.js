@@ -1,41 +1,38 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle, Defs, Line, LinearGradient, Path, Stop } from 'react-native-svg';
 import { useFonts } from 'expo-font';
+import * as SplashScreen from 'expo-splash-screen';
+import { LaunchCover } from './src/LaunchCover';
+import { HeatInsights } from './src/HeatInsights';
 import { config } from './config';
 import { poll, readResource, request } from './src/client';
 import { activityRows, activityTime } from './src/activity';
 import { DANGER_F, emergencyPhone, heatCurve, phoneUrl, sensorReadings, viewModel } from './src/model';
+import { AccentRule, ActionButton, Brand, Halo, Icon, Navigation, Notice, palette, StatusLabel, WarmBackground } from './src/ui';
 
-function Button({ children, onPress, secondary = false, disabled = false }) {
-  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.button, secondary && styles.secondary, (disabled || pressed) && { opacity: 0.55 }]}><Text style={[styles.buttonText, secondary && { color: '#F6F1F2' }]}>{children}</Text></Pressable>;
-}
-function Line({ from, to, dashed = false, color = '#F6F1F2' }) {
-  const length = Math.hypot(to.x - from.x, to.y - from.y);
-  const angle = Math.atan2(to.y - from.y, to.x - from.x);
-  const segments = dashed ? Math.ceil(length / 12) : 1;
-  return Array.from({ length: segments }, (_, i) => {
-    const offset = dashed ? i * 12 : 0;
-    const size = dashed ? Math.min(6, length - offset) : length;
-    return <View key={i} style={{ position: 'absolute', height: 2, width: size, backgroundColor: color, left: from.x + Math.cos(angle) * (offset + size / 2) - size / 2, top: from.y + Math.sin(angle) * (offset + size / 2), transform: [{ rotate: `${angle}rad` }] }} />;
-  });
-}
-function Sensor({ value, label }) {
-  return <View style={styles.sensor}><Text style={styles.sensorValue}>{value}</Text><Text style={styles.small}>{label}</Text></View>;
-}
+// Hand off the native loader only after the in-app logo has loaded and laid out.
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 function Chart({ entries, status, online }) {
   const [width, setWidth] = useState(280);
-  const curve = heatCurve(entries, status, online, width, 125);
+  const curve = heatCurve(entries, status, online, width, 112);
+  const last = curve.points.at(-1);
+  const path = curve.points.map((point, i) => `${i ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
   return <View style={styles.chartCard}>
-    <Text style={[styles.small, { textAlign: 'right' }]}>{DANGER_F}°F danger</Text>
-    <View accessibilityLabel="Cabin temperature history and box-reported forecast" onLayout={event => setWidth(event.nativeEvent.layout.width)} style={{ height: 135, marginTop: 8 }}>
-      <Line from={{ x: 0, y: curve.dangerY }} to={{ x: width, y: curve.dangerY }} dashed color="#B3A6AB" />
-      {curve.points.slice(1).map((point, i) => <Line key={i} from={curve.points[i]} to={point} />)}
-      {!!curve.points.length && <View style={{ position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: '#F6F1F2', left: curve.points.at(-1).x - 4, top: curve.points.at(-1).y - 4 }} />}
-      {curve.forecast && <Line from={curve.forecast.from} to={curve.forecast.to} dashed />}
-      {!curve.points.length && <Text style={[styles.body, { marginTop: 60 }]}>Waiting for temperature history</Text>}
+    <View style={styles.row}><View style={styles.inline}><Icon name="activity" size={16} color="#FFF5E9" /><Text style={[styles.sectionLabel, styles.onRed]}>CABIN TREND</Text></View><Text style={[styles.small, styles.onRed]}>{DANGER_F}°F danger</Text></View>
+    <View onLayout={event => setWidth(event.nativeEvent.layout.width)} style={{ height: 128, marginTop: 14 }} accessibilityLabel="Recorded cabin temperatures. Dashed forecast uses the box's minutes to danger.">
+      <Svg width={width} height={128}>
+        <Defs><LinearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.18" /><Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" /></LinearGradient></Defs>
+        <Line x1={0} x2={width} y1={curve.dangerY} y2={curve.dangerY} stroke="#FFFFFF65" strokeDasharray="2 5" />
+        {last && <><Path d={`${path} L ${last.x} 126 L ${curve.points[0].x} 126 Z`} fill="url(#chartFill)" /><Path d={path} fill="none" stroke="#F6F1F2" strokeWidth={2.25} strokeLinejoin="round" /></>}
+        {curve.forecast && <Line x1={curve.forecast.from.x} y1={curve.forecast.from.y} x2={curve.forecast.to.x} y2={curve.forecast.to.y} stroke="#F6F1F2" strokeWidth={2} strokeDasharray="4 5" />}
+        {last && <><Circle cx={last.x} cy={last.y} r={8} fill="#FFFFFF20" /><Circle cx={last.x} cy={last.y} r={3.5} fill="#FFFFFF" /></>}
+      </Svg>
+      {!last && <Text style={[styles.chartEmpty, styles.onRed]}>Waiting for temperature history</Text>}
     </View>
-    <View style={styles.row}><Text style={styles.small}>Recent readings</Text><Text style={styles.small}>{curve.forecast?.label ?? 'No forecast'}</Text></View>
-
+    <View style={styles.row}><Text style={[styles.small, styles.onRed]}>Recorded temperatures</Text><Text style={[styles.small, styles.onRed]}>{curve.forecast?.label ?? 'Latest reading'}</Text></View>
   </View>;
 }
 // Each resource owns its request lifecycle, so an unavailable contacts/feed
@@ -72,39 +69,51 @@ function useResource(path) {
 function Activity({ actions, history, carConnected }) {
   const rows = activityRows(actions.entries, history);
   return <>
-    <Text style={styles.title}>Activity</Text>
-    <Text style={styles.body}>What Echo did, and why.</Text>
-    {actions.state === 'loading' && <Text style={styles.small}>Loading activity…</Text>}
-    {actions.state === 'unavailable' && <Text style={styles.body}>Activity updates unavailable. Showing saved records.</Text>}
-    {!carConnected && history.length > 0 && <Text style={styles.small}>Box changes are from the last received history.</Text>}
-    {rows.length === 0 && actions.state === 'ready' && <View style={styles.infoCard}><Text style={styles.body}>No activity yet.</Text><Text style={styles.muted}>Calls, notes, and changes from the box will appear here.</Text></View>}
-    <View>{rows.map(row => <View key={row.id} style={styles.activityRow}>
-      <View style={styles.timeline}><View style={styles.timelineDot} /><View style={styles.timelineLine} /></View>
-      <View style={styles.activityText}>
-        <Text style={styles.muted}>{activityTime(row.time)} · {row.kind === 'level' ? 'BOX' : 'ACTION LOG'}</Text>
-        <Text style={styles.rowTitle}>{row.title}</Text>
-        <Text style={styles.body}>{row.reason}</Text>
-      </View>
-    </View>)}</View>
+    <Brand />
+    <View style={styles.pageHeading}><AccentRule /><Text style={styles.title}>Activity</Text><Text style={styles.subtitle}>Every action, with a reason.</Text></View>
+    <View style={styles.row}><Text style={styles.sectionLabel}>YOUR TIMELINE</Text><Text style={styles.muted}>{rows.length} records</Text></View>
+    {actions.state === 'loading' && <Notice icon="clock">Loading activity…</Notice>}
+    {actions.state === 'unavailable' && <Notice icon="offline" title="Updates paused">Showing saved records until the server reconnects.</Notice>}
+    {!carConnected && history.length > 0 && <Text style={styles.muted}>Box changes are from the last received history.</Text>}
+    {rows.length === 0 && actions.state === 'ready' && <View style={styles.emptyState}><View style={styles.emptyIcon}><Icon name="activity" size={32} color={palette.brand} /></View><Text style={styles.rowTitle}>The story starts here.</Text><Text style={[styles.subtitle, styles.center]}>Calls, notes, and changes at the car will appear as they happen.</Text></View>}
+    <View>{rows.map((row, index) => {
+      const isBox = row.kind === 'level';
+      const isCall = row.title.startsWith('Call');
+      const color = isBox ? '#805016' : isCall ? '#3B5271' : palette.brand;
+      return <View key={row.id} style={styles.activityRow}>
+        <View style={styles.timeline}><View style={[styles.timelineDot, { backgroundColor: color }]} />{index < rows.length - 1 && <View style={styles.timelineLine} />}</View>
+        <View style={[styles.activityCard, index === 0 && styles.latestCard]}>
+          <View style={styles.row}><View style={styles.inline}><Icon name={isBox ? 'car' : isCall ? 'phone' : 'activity'} size={14} color={color} /><Text style={[styles.sourceLabel, { color }]}>{isBox ? 'BOX' : 'ACTION LOG'}</Text></View><Text style={styles.time}>{activityTime(row.time)}</Text></View>
+          <Text style={styles.rowTitle}>{row.title}</Text><Text style={styles.reason}>{row.reason}</Text>
+        </View>
+      </View>;
+    })}</View>
   </>;
 }
 function Contacts({ resource }) {
   return <>
-    <Text style={styles.title}>Who Echo calls</Text>
-    <Text style={styles.body}>The backup call order is fixed.</Text>
-    {resource.state === 'loading' && <Text style={styles.small}>Loading contacts…</Text>}
-    {resource.state === 'unavailable' && <Text style={styles.body}>Contact updates unavailable. Showing the last received order.</Text>}
-    {resource.state === 'ready' && resource.entries.length === 0 && <Text style={styles.body}>No contacts received from the server.</Text>}
-    <View style={styles.contactList}>{resource.entries.map(contact => <View key={contact.order} style={styles.contactRow}>
-      <Text style={styles.contactNumber}>{contact.order}</Text><Text style={styles.contactName}>{contact.name}</Text>
+    <Brand />
+    <View style={styles.pageHeading}><AccentRule /><Text style={styles.title}>Your people.</Text><Text style={styles.subtitle}>Who Echo calls when it matters.</Text></View>
+    <View style={styles.row}><Text style={styles.sectionLabel}>BACKUP CALL ORDER</Text><View style={styles.inline}><Icon name="shield" size={13} color={palette.muted} /><Text style={styles.muted}>Fixed order</Text></View></View>
+    {resource.state === 'loading' && <Notice icon="clock">Loading contacts…</Notice>}
+    {resource.state === 'unavailable' && <Notice icon="offline" title="Updates paused">Showing the last received contact order.</Notice>}
+    {resource.state === 'ready' && resource.entries.length === 0 && <Notice icon="contacts" title="Your circle is empty">No contacts have been received from the server.</Notice>}
+    <View style={styles.contactList}>{resource.entries.map((contact, index) => <View key={contact.order} style={[styles.contactCard, index === 0 && styles.firstContact]}>
+      <View style={styles.row}><Text style={styles.contactOrder}>CONTACT {String(contact.order).padStart(2, '0')}</Text>{index === 0 && <Text style={styles.firstTag}>FIRST IN ORDER</Text>}</View>
+      <View style={styles.contactPerson}><View style={[styles.avatar, index > 0 && { backgroundColor: '#3523150C' }]}><Text style={styles.initial}>{Array.from(contact.name.trim())[0]?.toUpperCase() || '?'}</Text></View><Text style={styles.contactName}>{contact.name}</Text><Icon name="phone" color={palette.muted} size={20} /></View>
     </View>)}</View>
-    <View style={styles.infoCard}><Text style={styles.body}>The AI agent can call someone sooner than this order, never later.</Text></View>
+    <Notice icon="shield" title="A dependable backup">The AI agent can call someone sooner than this order, never later.</Notice>
   </>;
 }
 export default function App() {
-  const [fonts] = useFonts({ Doto: require('./assets/fonts/Doto.ttf'), Manrope: require('./assets/fonts/manrope.ttf'), Outfit: require('./assets/fonts/outfit.ttf') });
+  return <SafeAreaProvider><EchoApp /></SafeAreaProvider>;
+}
+function EchoApp() {
+  const insets = useSafeAreaInsets();
+  const [fontsLoaded, fontError] = useFonts({ Doto: require('./assets/fonts/Doto.ttf'), Manrope: require('./assets/fonts/manrope.ttf'), Outfit: require('./assets/fonts/outfit.ttf') });
   const [data, setData] = useState({ snapshot: null, entries: [] });
   const [tab, setTab] = useState('Car');
+  const [launchDone, setLaunchDone] = useState(false);
   const actions = useResource('/actions');
   const contacts = useResource('/contacts');
   const [connected, setConnected] = useState(false);
@@ -158,109 +167,83 @@ export default function App() {
   const status = vm.status;
   const seat = status ? (status.presence ? 'Someone is in the seat' : 'Seat is empty') : 'Waiting for a seat reading';
   const lastHeard = Number.isFinite(data.snapshot?.lastSeen) ? new Date(data.snapshot.lastSeen).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : null;
-  return <View style={[styles.screen, tab === 'Car' && vm.emergency && styles.emergency]}>
-    <StatusBar barStyle="light-content" />
-    {tab !== 'Car' && vm.emergency && <Pressable accessibilityRole="button" onPress={() => setTab('Car')} style={styles.emergencyBanner}>
-      <Text style={styles.rowTitle}>◆ Emergency at the car</Text>
-      <Text style={styles.body}>Go to the car now. View alert →</Text>
+  const launchVisible = !launchDone && !vm.emergency;
+  const emergencyScreen = tab === 'Car' && vm.emergency;
+  return <View style={[styles.screen, emergencyScreen && styles.emergency]}>
+    {!emergencyScreen && <WarmBackground />}
+    <StatusBar barStyle={!emergencyScreen && !launchVisible ? 'dark-content' : 'light-content'} />
+    <View style={{ flex: 1 }} accessibilityElementsHidden={launchVisible} importantForAccessibility={launchVisible ? 'no-hide-descendants' : 'auto'}>
+    {tab !== 'Car' && vm.emergency && <Pressable accessibilityRole="button" onPress={() => setTab('Car')} style={[styles.emergencyBanner, { marginTop: insets.top + 8 }]}>
+      <Icon name="alert" color="#FF868D" /><View style={{ flex: 1 }}><Text style={[styles.rowTitle, styles.onRed]}>Emergency at the car</Text><Text style={[styles.small, styles.onRed]}>Go to the car now · View alert</Text></View><Icon name="arrow" color="#FFF5E9" />
     </Pressable>}
-    <ScrollView key={tab} contentContainerStyle={[styles.content, tab !== 'Car' && vm.emergency && { paddingTop: 24 }]}>
-      {tab === 'Feed' ? <Activity actions={actions} history={data.entries} carConnected={vm.online} /> : tab === 'Contacts' ? <Contacts resource={contacts} /> : <>
-      <View style={styles.row}>
-        <Text style={[vm.emergency ? styles.badge : styles.title, !fonts && { fontFamily: undefined }]}>{vm.emergency ? '◆ EMERGENCY' : 'Family car'}</Text>
-        <Text style={styles.small}>{vm.emergency ? 'Family car' : vm.heard}</Text>
-      </View>
-      <View style={[styles.hero, vm.emergency && styles.emergencyHero]}>
-        {!vm.emergency && <View pointerEvents="none" style={[styles.glow, { backgroundColor: vm.color }]} />}
-        <Text style={[vm.emergency ? styles.body : styles.badge, { color: vm.emergency ? '#F6F1F2' : vm.color }]}>
-          {vm.emergency ? 'Danger in' : vm.online ? `○ ${status.state}` : 'BOX OFFLINE'}
-        </Text>
-        <View style={[styles.numberRow, !vm.online && { opacity: 0.4 }]}>
-          <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.number, vm.emergency && styles.dangerNumber]}>{vm.emergency ? vm.minutes : status ? String(status.tempF) : '—'}</Text>
-          <Text style={styles.unit}>{vm.emergency ? 'min' : '°F'}</Text>
+    <ScrollView key={tab} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingTop: tab !== 'Car' && vm.emergency ? 20 : insets.top + 18 }]}>
+      {tab === 'Insights' ? <HeatInsights /> : tab === 'Feed' ? <Activity actions={actions} history={data.entries} carConnected={vm.online} /> : tab === 'Contacts' ? <Contacts resource={contacts} /> : <>
+        <Brand />
+        <View style={styles.row}>
+          <View style={{ gap: 5 }}><Text style={vm.emergency ? [styles.sectionLabel, styles.onRed] : styles.title}>{vm.emergency ? 'FAMILY CAR' : 'Family car'}</Text>{!vm.emergency && <Text style={styles.muted}>{vm.heard}</Text>}</View>
+          <View style={[styles.carIcon, vm.emergency && { backgroundColor: '#FFFFFF15', borderColor: '#FFFFFF20' }]}><Icon name="car" color={vm.emergency ? '#FFFFFF' : palette.muted} size={22} /></View>
         </View>
-        <Text style={styles.heroCaption}>{vm.emergency ? `${status.tempF}°F${vm.rising ? ' and rising' : ''} · ${status.presence ? 'Seat occupied' : 'Seat empty'}` : `${!vm.online && status ? 'Last known · ' : ''}${seat}`}</Text>
-        <Text style={[styles.body, styles.center]}>
-          {vm.emergency ? status.minsToDanger === null ? 'No estimate from the box. Go to the car now.' : status.minsToDanger === 0 ? 'At danger level now. Go to the car now.' : 'Go to the car now.'
-            : !vm.online ? lastHeard ? `As of ${lastHeard} · may be higher now` : 'Connect to the hotspot to receive updates.'
-            : status.state === 'IDLE' ? 'Monitoring the car' : vm.rising ? 'Car is off · temperature is rising' : 'Car is off · monitoring temperature'}
-        </Text>
-        {!vm.online && status && <Text style={[styles.small, { opacity: 0.6 }]}>Last alert: {status.state}</Text>}
-      </View>
-      {vm.emergency ? <>
-        <Chart entries={data.entries} status={status} online={vm.online} />
-        <View style={styles.actions}>
-          <Button onPress={acknowledge} disabled={sending || now < sentUntil}>{sending ? 'Sending…' : now < sentUntil ? 'Message logged' : "I'm on my way"}</Button>
-          {!!ackNote && <Text accessibilityRole="alert" style={styles.body}>{ackNote}</Text>}
-          <Button secondary onPress={() => dial(() => emergencyPhone(config))}>{config.demoCalls ? 'Open demo dialer' : 'Call 911'}</Button>
-        </View>
-      </> : <View style={styles.homeFooter}>
-        {vm.online ? <>
-          <View style={styles.sensors}>
-            {sensorReadings(status).map(reading => <Sensor key={reading.label} {...reading} />)}
+        <View style={[styles.hero, vm.emergency && styles.emergencyHero]}>
+          {!vm.emergency && <Halo color={vm.color} />}
+          <StatusLabel label={vm.online ? status.state : 'BOX OFFLINE'} color={vm.emergency ? '#FFFFFF' : vm.online ? status.state === 'WARNING' || status.state === 'OCCUPANT' ? '#805016' : '#365B7E' : palette.muted} live={vm.online && !vm.emergency} />
+          <Text style={[styles.metricLabel, vm.emergency && styles.onRed]}>{vm.emergency ? 'DANGER IN' : vm.online ? 'CABIN TEMPERATURE' : 'LAST KNOWN TEMPERATURE'}</Text>
+          <View style={[styles.numberRow, !vm.online && { opacity: 0.65 }]}>
+            <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.number, vm.emergency && styles.dangerNumber, vm.emergency && styles.onRed]}>{vm.emergency ? vm.minutes : status ? String(status.tempF) : '—'}</Text><Text style={[styles.unit, vm.emergency && styles.onRed]}>{vm.emergency ? 'min' : '°F'}</Text>
           </View>
-          <Text style={styles.body}>If you left the car, go back now. The box sounds its own alarm if the cabin gets hot.</Text>
-        </> : <>
-          <View style={styles.offlineInfo}><Text style={styles.body}>The box may have lost Wi-Fi. Its own alarm still works at the car.</Text></View>
-          <Button onPress={() => dial(() => phoneUrl(config.momNumber))}>Call Mom</Button>
-        </>}
-        {!!ackNote && <Text accessibilityRole="alert" style={styles.body}>{ackNote}</Text>}
-      </View>}
-      {!!note && <Text accessibilityRole="alert" style={styles.body}>{note}</Text>}
-      {!config.serverUrl && <Text style={styles.small}>The server connection isn’t configured.</Text>}
-      <Text style={[styles.small, styles.center, { marginTop: 4 }]}>Only the button on the box can stop the alarm.</Text>
+          <View style={styles.inline}><Icon name="seat" size={17} color={vm.emergency ? '#FFFFFF' : palette.muted} /><Text style={[styles.heroCaption, vm.emergency && styles.onRed]}>{vm.emergency ? `${status.tempF}°F${vm.rising ? ' and rising' : ''} · ${status.presence ? 'Seat occupied' : 'Seat empty'}` : `${!vm.online && status ? 'Last known · ' : ''}${seat}`}</Text></View>
+          <Text style={[styles.heroDetail, styles.center, vm.emergency && styles.onRed]}>{vm.emergency ? status.minsToDanger === null ? 'No estimate from the box. Go to the car now.' : status.minsToDanger === 0 ? 'At danger level now. Go to the car now.' : 'Go to the car now.'
+            : !vm.online ? lastHeard ? `As of ${lastHeard} · may be higher now` : 'Waiting for the box to connect.' : status.state === 'IDLE' ? 'Monitoring the car' : vm.rising ? 'Car is off · temperature is rising' : 'Car is off · monitoring temperature'}</Text>
+          {!vm.online && status && <Text style={styles.muted}>Last alert: {status.state}</Text>}
+        </View>
+        {vm.emergency ? <>
+          <Chart entries={data.entries} status={status} online={vm.online} />
+          <View style={styles.actions}>
+            <ActionButton emergency icon={now < sentUntil ? 'check' : 'arrow'} onPress={acknowledge} disabled={sending || now < sentUntil}>{sending ? 'Sending…' : now < sentUntil ? 'Message logged' : "I'm on my way"}</ActionButton>
+            {!!ackNote && <Text accessibilityRole="alert" style={[styles.body, emergencyScreen && styles.onRed]}>{ackNote}</Text>}
+            <ActionButton emergency icon="phone" secondary onPress={() => dial(() => emergencyPhone(config))}>{config.demoCalls ? 'Open demo dialer' : 'Call 911'}</ActionButton>
+          </View>
+        </> : <View style={styles.homeFooter}>
+          {vm.online ? <>
+            <View style={styles.sensors}>{sensorReadings(status).map((reading, index) => <View key={reading.label} style={[styles.sensor, index > 0 && styles.sensorDivider]}>
+              <Icon name={['seat', 'motion', 'humidity', 'battery'][index]} size={18} color={palette.muted} /><Text style={styles.sensorValue}>{reading.value}</Text><Text style={styles.sensorLabel}>{reading.label}</Text>
+            </View>)}</View>
+            <Notice title="Stay close" icon="shield">If you left the car, go back now. The box sounds its own alarm if the cabin gets hot.</Notice>
+          </> : <>
+            <Notice title="Connection lost. Check the car." icon="offline">The box may have lost Wi-Fi. Its own alarm still works at the car.</Notice>
+            <ActionButton icon="phone" onPress={() => dial(() => phoneUrl(config.momNumber))}>Call Mom</ActionButton>
+          </>}
+          {!!ackNote && <Text accessibilityRole="alert" style={[styles.body, emergencyScreen && styles.onRed]}>{ackNote}</Text>}
+        </View>}
+        {!!note && <Text accessibilityRole="alert" style={[styles.body, emergencyScreen && styles.onRed]}>{note}</Text>}
+        {!config.serverUrl && <Text style={styles.small}>The server connection isn’t configured.</Text>}
+        <View style={styles.safetyLine}><Icon name="shield" size={13} color={emergencyScreen ? '#F6F1F2' : palette.muted} /><Text style={[styles.safetyText, emergencyScreen && { color: '#F6F1F2' }]}>Only the button on the box can stop the alarm.</Text></View>
       </>}
     </ScrollView>
-    <View accessibilityRole="tablist" style={styles.navigation}>
-      {['Car', 'Feed', 'Contacts'].map(name => <Pressable key={name} accessibilityRole="tab" accessibilityState={{ selected: tab === name }} onPress={() => setTab(name)} style={styles.tab}>
-        <View style={[styles.tabIndicator, tab === name && { backgroundColor: '#F6F1F2' }]} />
-        <Text style={[styles.tabLabel, tab === name && { color: '#F6F1F2' }]}>{name}</Text>
-      </Pressable>)}
+    <Navigation tab={tab} onChange={setTab} bottom={insets.bottom} light={!emergencyScreen} />
     </View>
+    {!launchDone && <LaunchCover fontsReady={fontsLoaded || !!fontError} emergency={vm.emergency} onFinish={setLaunchDone} />}
   </View>;
 }
 const styles = StyleSheet.create({
-  navigation: { flexDirection: 'row', paddingTop: 8, paddingBottom: 24, borderTopWidth: 1, borderColor: '#F6F1F22A', backgroundColor: '#0E0B0D' },
-  tab: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  tabLabel: { fontFamily: 'Outfit', fontSize: 14, color: '#B3A6AB' },
-  tabIndicator: { height: 3, width: 22, borderRadius: 2 },
-  emergencyBanner: { marginTop: 62, marginHorizontal: 28, borderColor: '#F6F1F2', borderWidth: 1, borderRadius: 16, padding: 16, gap: 8 },
-  infoCard: { backgroundColor: '#1A1517', borderRadius: 18, padding: 20, gap: 10 },
-  muted: { fontFamily: 'Manrope', color: '#B3A6AB', fontSize: 12, lineHeight: 19 },
-  rowTitle: { fontFamily: 'Outfit', color: '#F6F1F2', fontSize: 17 },
-  activityRow: { flexDirection: 'row', gap: 16 },
-  activityText: { flex: 1, paddingBottom: 28, gap: 7 },
-  timeline: { width: 12, alignItems: 'center', paddingTop: 5 },
-  timelineDot: { height: 8, width: 8, borderRadius: 4, backgroundColor: '#B3A6AB' },
-  timelineLine: { width: 1, flex: 1, backgroundColor: '#F6F1F22A', marginTop: 8, marginBottom: 5 },
-  contactList: { gap: 12, marginVertical: 10 },
-  contactRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1A1517', borderRadius: 18, padding: 22, gap: 22 },
-  contactNumber: { fontFamily: 'Doto', fontSize: 32, color: '#B3A6AB' },
-  contactName: { fontFamily: 'Manrope', fontSize: 19, color: '#F6F1F2', flexShrink: 1 },
-  screen: { flex: 1, backgroundColor: '#0E0B0D' }, emergency: { backgroundColor: '#E5202E' },
-  content: { flexGrow: 1, paddingHorizontal: 28, paddingTop: 62, paddingBottom: 36, gap: 18, width: '100%', maxWidth: 520, alignSelf: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  title: { fontFamily: 'Doto', fontSize: 27, color: '#F6F1F2' },
-  body: { fontFamily: 'Manrope', fontSize: 14, lineHeight: 22, color: '#F6F1F2' },
-  small: { fontFamily: 'Manrope', fontSize: 11, lineHeight: 17, color: '#D6CDD0' },
-  badge: { fontFamily: 'Outfit', fontSize: 13, letterSpacing: 1.8, color: '#F6F1F2' },
-  hero: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', minHeight: 340, paddingVertical: 30, gap: 12 },
-  emergencyHero: { minHeight: 265, flexGrow: 0, paddingTop: 22, paddingBottom: 12, gap: 8 },
-  glow: { position: 'absolute', height: 220, width: 220, borderRadius: 110, opacity: 0.09 },
-  numberRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', width: '100%', gap: 6 },
-  number: { fontFamily: 'Doto', color: '#F6F1F2', fontSize: 110, flexShrink: 1, textAlign: 'center' },
-  dangerNumber: { fontSize: 132 },
-  unit: { fontFamily: 'Outfit', fontSize: 24, color: '#F6F1F2' },
-  heroCaption: { fontFamily: 'Outfit', fontSize: 16, color: '#F6F1F2', textAlign: 'center' },
-  center: { textAlign: 'center' },
-  homeFooter: { gap: 20, marginBottom: 4 },
-  sensors: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#F6F1F22A', paddingVertical: 18 },
-  sensor: { flex: 1, gap: 4 },
-  sensorValue: { fontFamily: 'Doto', color: '#F6F1F2', fontSize: 19 },
-  offlineInfo: { borderTopWidth: 1, borderColor: '#F6F1F22A', paddingTop: 20 },
-  chartCard: { paddingTop: 4, paddingBottom: 14, borderBottomWidth: 1, borderColor: '#F6F1F24A' },
-  actions: { gap: 10 },
-  button: { minHeight: 60, borderRadius: 16, backgroundColor: '#F6F1F2', padding: 16, alignItems: 'center', justifyContent: 'center' },
-  secondary: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: '#F6F1F2' },
-  buttonText: { fontFamily: 'Outfit', fontSize: 18, color: '#0E0B0D' },
+  onRed: { color: '#FFF5E9' },
+  screen: { flex: 1, backgroundColor: palette.ground }, emergency: { backgroundColor: '#B62432' },
+  content: { flexGrow: 1, paddingHorizontal: 22, paddingBottom: 20, gap: 18, width: '100%', maxWidth: 560, alignSelf: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, inline: { flexDirection: 'row', alignItems: 'center', gap: 7 }, center: { textAlign: 'center' },
+  title: { fontFamily: 'Outfit', fontSize: 32, letterSpacing: -1, color: palette.text }, subtitle: { fontFamily: 'Manrope', fontSize: 14, lineHeight: 22, color: palette.muted },
+  body: { fontFamily: 'Manrope', fontSize: 14, lineHeight: 22, color: palette.text }, small: { fontFamily: 'Manrope', fontSize: 10, lineHeight: 16, color: palette.muted }, muted: { fontFamily: 'Manrope', fontSize: 11, lineHeight: 17, color: palette.muted },
+  sectionLabel: { fontFamily: 'Outfit', fontSize: 10, letterSpacing: 1.8, color: palette.muted }, pageHeading: { gap: 12, marginTop: 12, marginBottom: 16 },
+  carIcon: { width: 44, height: 44, borderRadius: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.line, justifyContent: 'center', alignItems: 'center' },
+  hero: { justifyContent: 'center', alignItems: 'center', flexGrow: 1, minHeight: 295, gap: 10, paddingVertical: 24 }, emergencyHero: { minHeight: 245, flexGrow: 0, paddingVertical: 6, gap: 8 },
+  metricLabel: { fontFamily: 'Manrope', fontSize: 9, letterSpacing: 2.2, color: palette.muted, marginTop: 8 },
+  numberRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', width: '100%', gap: 7 }, number: { fontFamily: 'Doto', fontSize: 100, letterSpacing: -4, color: palette.text, flexShrink: 1 }, dangerNumber: { fontSize: 115 }, unit: { fontFamily: 'Outfit', fontSize: 24, color: palette.text },
+  heroCaption: { fontFamily: 'Outfit', fontSize: 14, color: palette.text, flexShrink: 1, textAlign: 'center' }, heroDetail: { fontFamily: 'Manrope', fontSize: 11, lineHeight: 18, color: palette.muted },
+  homeFooter: { gap: 14 }, sensors: { flexDirection: 'row', borderWidth: 1, borderColor: palette.line, backgroundColor: palette.surface, borderRadius: 22, paddingVertical: 18 }, sensor: { flex: 1, alignItems: 'center', gap: 8, paddingHorizontal: 3 }, sensorDivider: { borderLeftWidth: 1, borderColor: palette.line }, sensorValue: { fontFamily: 'Outfit', fontSize: 18, color: palette.text }, sensorLabel: { fontFamily: 'Manrope', fontSize: 9, color: palette.muted },
+  chartCard: { backgroundColor: '#510B1728', borderWidth: 1, borderColor: '#FFFFFF20', borderRadius: 22, padding: 16 }, chartEmpty: { position: 'absolute', top: 56, alignSelf: 'center', fontFamily: 'Manrope', fontSize: 12, color: palette.text }, actions: { gap: 10 },
+  safetyLine: { flexDirection: 'row', gap: 6, justifyContent: 'center', alignItems: 'center', paddingTop: 3 }, safetyText: { fontFamily: 'Manrope', fontSize: 9, lineHeight: 15, color: palette.muted, flexShrink: 1 },
+  emergencyBanner: { marginHorizontal: 22, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#36131B', borderWidth: 1, borderColor: '#E5202E60', borderRadius: 18, padding: 16 },
+  rowTitle: { fontFamily: 'Outfit', color: palette.text, fontSize: 17 }, activityRow: { flexDirection: 'row', gap: 13 }, timeline: { width: 9, alignItems: 'center', paddingTop: 25 }, timelineDot: { width: 7, height: 7, borderRadius: 4 }, timelineLine: { flex: 1, width: 1, backgroundColor: palette.line, marginTop: 9, marginBottom: 2 },
+  activityCard: { flex: 1, borderBottomWidth: 1, borderColor: palette.line, paddingVertical: 16, paddingHorizontal: 2, marginBottom: 12, gap: 10 }, latestCard: { borderColor: '#873F2530' }, sourceLabel: { fontFamily: 'Outfit', fontSize: 9, letterSpacing: 1.1 }, time: { fontFamily: 'Manrope', fontSize: 10, color: palette.muted }, reason: { fontFamily: 'Manrope', fontSize: 12, lineHeight: 19, color: palette.muted },
+  emptyState: { alignItems: 'center', paddingVertical: 60, gap: 15 }, emptyIcon: { width: 72, height: 72, borderRadius: 26, backgroundColor: '#FFF3CD40', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  contactList: { gap: 14, marginBottom: 8 }, contactCard: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.line, borderRadius: 24, padding: 20, gap: 22 }, firstContact: { borderColor: '#873F2530' }, contactOrder: { fontFamily: 'Outfit', fontSize: 10, letterSpacing: 1.5, color: palette.muted }, firstTag: { fontFamily: 'Outfit', fontSize: 8, letterSpacing: 0.8, color: palette.brand },
+  contactPerson: { flexDirection: 'row', alignItems: 'center', gap: 14 }, avatar: { width: 50, height: 50, borderRadius: 18, backgroundColor: '#FFF3CD55', alignItems: 'center', justifyContent: 'center' }, initial: { fontFamily: 'Doto', fontSize: 27, color: palette.text }, contactName: { fontFamily: 'Outfit', fontSize: 24, color: palette.text, flex: 1 },
 });

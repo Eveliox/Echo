@@ -28,7 +28,16 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/echo-logo.png",
+          "imageWidth": 240,
+          "resizeMode": "contain",
+          "backgroundColor": "#0E0B0D"
+        }
+      ]
     ]
   }
 }
