@@ -13,3 +13,18 @@ export async function poll(base, options) {
   if (typeof snapshot?.online !== 'boolean' || !Array.isArray(history?.entries)) throw new Error('Invalid server response.');
   return { snapshot, entries: history.entries, receivedAt: Date.now() };
 }
+
+// Feed and contacts have their own polling state. Their failures must never
+// make a fresh car reading look offline or hold up the car's emergency UI.
+export async function readResource(base, path, options) {
+  const result = await request(base, path, options);
+  if (path === '/actions') {
+    if (!Array.isArray(result?.entries)) throw new Error('Invalid action log.');
+    return result.entries;
+  }
+  if (path === '/contacts') {
+    if (!Array.isArray(result) || result.some(contact => !Number.isInteger(contact.order) || contact.order < 1 || typeof contact.name !== 'string')) throw new Error('Invalid contacts.');
+    return result.map(({ order, name }) => ({ order, name }));
+  }
+  throw new Error('Unknown app resource.');
+}

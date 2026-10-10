@@ -3,6 +3,7 @@
 //   GET  /status  { online, lastSeen, status } for the dashboard and app
 //   GET  /history { entries: [{ receivedAt, status }] }, the last 10 minutes, oldest first
 //   GET  /actions { entries: [{ time, action, to, reason }] }, the ladder's action log, oldest first
+//   GET  /contacts [{ order, name }], fixed ladder order, never phone numbers
 //   POST /on-my-way  fixed app note only; 4 KiB cap, one note per minute globally
 //   GET  /        the read-only dashboard page (dashboard.js, files in server/dashboard/)
 // Each new status also feeds the backup ladder (ladder.js). Calls only dial
@@ -70,8 +71,9 @@ function requestPath(url) {
 export function createServer({
   tracker = createTracker(), history = createHistory(), statusLog = null, actions = createActionLog(),
   logError = console.error, boxToken = '', rejections = createRejectionLog({ log: logError }),
-  now = Date.now,
+  now = Date.now, contacts = [],
 } = {}) {
+  const publicContacts = contacts.map((contact, index) => ({ order: index + 1, name: contact.name }));
   // Global cooldown needs constant memory and cannot be bypassed with invented client IDs.
   let lastAcknowledged = -Infinity;
   const guard = (res, fn) => {
@@ -91,6 +93,10 @@ export function createServer({
     if (path === '/actions') {
       if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
       return send(res, 200, { entries: actions.entries() });
+    }
+    if (path === '/contacts') {
+      if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
+      return send(res, 200, publicContacts);
     }
     if (path === '/on-my-way') {
       if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
@@ -218,7 +224,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
   const statusLog = createStatusLog({ dir: logDir() });
   const boxToken = readBoxToken();
-  createServer({ tracker, statusLog, actions, boxToken }).listen(port, () => {
+  createServer({ tracker, statusLog, actions, boxToken, contacts: config.contacts }).listen(port, () => {
     console.log(`Echo server listening on port ${port}`);
     console.log(`Echo server logging statuses to ${statusLog.file}`);
     // Missing settings are loud but don't stop the server: status tracking still matters.

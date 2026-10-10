@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { useFonts } from 'expo-font';
 import { config } from './config';
-import { poll, request } from './src/client';
+import { poll, readResource, request } from './src/client';
+import { activityRows, activityTime } from './src/activity';
 import { DANGER_F, emergencyPhone, heatCurve, phoneUrl, sensorReadings, viewModel } from './src/model';
 
 function Button({ children, onPress, secondary = false, disabled = false }) {
@@ -37,9 +38,75 @@ function Chart({ entries, status, online }) {
 
   </View>;
 }
+// Each resource owns its request lifecycle, so an unavailable contacts/feed
+// endpoint cannot block status polling or change the car's online indicator.
+function useResource(path) {
+  const [resource, setResource] = useState({ entries: [], state: 'loading' });
+  useEffect(() => {
+    let stopped = false;
+    let active = AppState.currentState === 'active';
+    let busy = false;
+    let generation = 0;
+    const update = async () => {
+      if (stopped || !active || busy) return;
+      busy = true;
+      const current = generation;
+      try {
+        const entries = await readResource(config.serverUrl, path);
+        if (!stopped && active && generation === current) setResource({ entries, state: 'ready' });
+      } catch {
+        if (!stopped && generation === current) setResource(previous => ({ ...previous, state: 'unavailable' }));
+      } finally { busy = false; }
+    };
+    const subscription = AppState.addEventListener('change', state => {
+      active = state === 'active'; generation++;
+      setResource(previous => ({ ...previous, state: 'unavailable' }));
+      if (active) update();
+    });
+    update();
+    const timer = setInterval(update, 2000);
+    return () => { stopped = true; clearInterval(timer); subscription.remove(); };
+  }, [path]);
+  return resource;
+}
+function Activity({ actions, history, carConnected }) {
+  const rows = activityRows(actions.entries, history);
+  return <>
+    <Text style={styles.title}>Activity</Text>
+    <Text style={styles.body}>What Echo did, and why.</Text>
+    {actions.state === 'loading' && <Text style={styles.small}>Loading activity…</Text>}
+    {actions.state === 'unavailable' && <Text style={styles.body}>Activity updates unavailable. Showing saved records.</Text>}
+    {!carConnected && history.length > 0 && <Text style={styles.small}>Box changes are from the last received history.</Text>}
+    {rows.length === 0 && actions.state === 'ready' && <View style={styles.infoCard}><Text style={styles.body}>No activity yet.</Text><Text style={styles.muted}>Calls, notes, and changes from the box will appear here.</Text></View>}
+    <View>{rows.map(row => <View key={row.id} style={styles.activityRow}>
+      <View style={styles.timeline}><View style={styles.timelineDot} /><View style={styles.timelineLine} /></View>
+      <View style={styles.activityText}>
+        <Text style={styles.muted}>{activityTime(row.time)} · {row.kind === 'level' ? 'BOX' : 'ACTION LOG'}</Text>
+        <Text style={styles.rowTitle}>{row.title}</Text>
+        <Text style={styles.body}>{row.reason}</Text>
+      </View>
+    </View>)}</View>
+  </>;
+}
+function Contacts({ resource }) {
+  return <>
+    <Text style={styles.title}>Who Echo calls</Text>
+    <Text style={styles.body}>The backup call order is fixed.</Text>
+    {resource.state === 'loading' && <Text style={styles.small}>Loading contacts…</Text>}
+    {resource.state === 'unavailable' && <Text style={styles.body}>Contact updates unavailable. Showing the last received order.</Text>}
+    {resource.state === 'ready' && resource.entries.length === 0 && <Text style={styles.body}>No contacts received from the server.</Text>}
+    <View style={styles.contactList}>{resource.entries.map(contact => <View key={contact.order} style={styles.contactRow}>
+      <Text style={styles.contactNumber}>{contact.order}</Text><Text style={styles.contactName}>{contact.name}</Text>
+    </View>)}</View>
+    <View style={styles.infoCard}><Text style={styles.body}>The AI agent can call someone sooner than this order, never later.</Text></View>
+  </>;
+}
 export default function App() {
   const [fonts] = useFonts({ Doto: require('./assets/fonts/Doto.ttf'), Manrope: require('./assets/fonts/manrope.ttf'), Outfit: require('./assets/fonts/outfit.ttf') });
   const [data, setData] = useState({ snapshot: null, entries: [] });
+  const [tab, setTab] = useState('Car');
+  const actions = useResource('/actions');
+  const contacts = useResource('/contacts');
   const [connected, setConnected] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [note, setNote] = useState('');
@@ -91,9 +158,14 @@ export default function App() {
   const status = vm.status;
   const seat = status ? (status.presence ? 'Someone is in the seat' : 'Seat is empty') : 'Waiting for a seat reading';
   const lastHeard = Number.isFinite(data.snapshot?.lastSeen) ? new Date(data.snapshot.lastSeen).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' }) : null;
-  return <View style={[styles.screen, vm.emergency && styles.emergency]}>
+  return <View style={[styles.screen, tab === 'Car' && vm.emergency && styles.emergency]}>
     <StatusBar barStyle="light-content" />
-    <ScrollView contentContainerStyle={styles.content}>
+    {tab !== 'Car' && vm.emergency && <Pressable accessibilityRole="button" onPress={() => setTab('Car')} style={styles.emergencyBanner}>
+      <Text style={styles.rowTitle}>◆ Emergency at the car</Text>
+      <Text style={styles.body}>Go to the car now. View alert →</Text>
+    </Pressable>}
+    <ScrollView key={tab} contentContainerStyle={[styles.content, tab !== 'Car' && vm.emergency && { paddingTop: 24 }]}>
+      {tab === 'Feed' ? <Activity actions={actions} history={data.entries} carConnected={vm.online} /> : tab === 'Contacts' ? <Contacts resource={contacts} /> : <>
       <View style={styles.row}>
         <Text style={[vm.emergency ? styles.badge : styles.title, !fonts && { fontFamily: undefined }]}>{vm.emergency ? '◆ EMERGENCY' : 'Family car'}</Text>
         <Text style={styles.small}>{vm.emergency ? 'Family car' : vm.heard}</Text>
@@ -137,10 +209,34 @@ export default function App() {
       {!!note && <Text accessibilityRole="alert" style={styles.body}>{note}</Text>}
       {!config.serverUrl && <Text style={styles.small}>The server connection isn’t configured.</Text>}
       <Text style={[styles.small, styles.center, { marginTop: 4 }]}>Only the button on the box can stop the alarm.</Text>
+      </>}
     </ScrollView>
+    <View accessibilityRole="tablist" style={styles.navigation}>
+      {['Car', 'Feed', 'Contacts'].map(name => <Pressable key={name} accessibilityRole="tab" accessibilityState={{ selected: tab === name }} onPress={() => setTab(name)} style={styles.tab}>
+        <View style={[styles.tabIndicator, tab === name && { backgroundColor: '#F6F1F2' }]} />
+        <Text style={[styles.tabLabel, tab === name && { color: '#F6F1F2' }]}>{name}</Text>
+      </Pressable>)}
+    </View>
   </View>;
 }
 const styles = StyleSheet.create({
+  navigation: { flexDirection: 'row', paddingTop: 8, paddingBottom: 24, borderTopWidth: 1, borderColor: '#F6F1F22A', backgroundColor: '#0E0B0D' },
+  tab: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  tabLabel: { fontFamily: 'Outfit', fontSize: 14, color: '#B3A6AB' },
+  tabIndicator: { height: 3, width: 22, borderRadius: 2 },
+  emergencyBanner: { marginTop: 62, marginHorizontal: 28, borderColor: '#F6F1F2', borderWidth: 1, borderRadius: 16, padding: 16, gap: 8 },
+  infoCard: { backgroundColor: '#1A1517', borderRadius: 18, padding: 20, gap: 10 },
+  muted: { fontFamily: 'Manrope', color: '#B3A6AB', fontSize: 12, lineHeight: 19 },
+  rowTitle: { fontFamily: 'Outfit', color: '#F6F1F2', fontSize: 17 },
+  activityRow: { flexDirection: 'row', gap: 16 },
+  activityText: { flex: 1, paddingBottom: 28, gap: 7 },
+  timeline: { width: 12, alignItems: 'center', paddingTop: 5 },
+  timelineDot: { height: 8, width: 8, borderRadius: 4, backgroundColor: '#B3A6AB' },
+  timelineLine: { width: 1, flex: 1, backgroundColor: '#F6F1F22A', marginTop: 8, marginBottom: 5 },
+  contactList: { gap: 12, marginVertical: 10 },
+  contactRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1A1517', borderRadius: 18, padding: 22, gap: 22 },
+  contactNumber: { fontFamily: 'Doto', fontSize: 32, color: '#B3A6AB' },
+  contactName: { fontFamily: 'Manrope', fontSize: 19, color: '#F6F1F2', flexShrink: 1 },
   screen: { flex: 1, backgroundColor: '#0E0B0D' }, emergency: { backgroundColor: '#E5202E' },
   content: { flexGrow: 1, paddingHorizontal: 28, paddingTop: 62, paddingBottom: 36, gap: 18, width: '100%', maxWidth: 520, alignSelf: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
