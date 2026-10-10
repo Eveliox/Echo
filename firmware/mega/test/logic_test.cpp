@@ -3,6 +3,7 @@
 // Any failed CHECK makes the program exit non-zero.
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
 #include <string.h>
 
@@ -255,6 +256,7 @@ static AlertInputs carOff(bool occupied, float tempF, uint32_t nowMs) {
   in.cancelPressed = false;
   in.seatOccupied = occupied;
   in.tempF = tempF;
+  in.minsToDanger = NAN;
   in.nowMs = nowMs;
   return in;
 }
@@ -629,6 +631,7 @@ static StatusFields sampleFields() {
   f.humidity = 41.0f;
   f.presence = true;
   f.distanceCm = 38.0f;
+  f.minsToDanger = NAN;
   return f;
 }
 
@@ -953,7 +956,7 @@ static void test_lcd_line2_per_level() {
   CHECK(strcmp(line, "DANGER IN 123.4m") == 0);
 }
 
-// minsToDanger is null until its ticket lands: unknown shows a placeholder.
+// Unknown minutes to danger (null) shows a placeholder.
 static void test_lcd_line2_unknown_and_huge_minutes() {
   char line[LCD_LINE_BUF];
   lcdLine2(line, LEVEL_WARNING, NAN, false, 0);
@@ -991,6 +994,370 @@ static void test_lcd_shows_sim_when_simulating() {
   }
   // SIM is on screen for a good share of the time, not a brief blip.
   CHECK(half >= 1000UL);
+}
+
+
+// ---------------------------------------------------------------------------
+// Minutes to danger
+// ---------------------------------------------------------------------------
+
+// Pins the values in docs/firmware.md "Minutes to danger" and the level table
+// with literals.
+static void test_mins_constants_match_doc() {
+  CHECK(MINS_TO_DANGER_SAMPLES == 60);
+  CHECK(DANGER_TEMP_F == 104.0f);
+  CHECK(MIN_WARMING_RATE_F_PER_MIN == 0.05f);
+  CHECK(WARNING_MINS == 10.0f);
+  CHECK(EMERGENCY_MINS == 5.0f);
+  // 60 samples, one per status period, is the doc's 2 minutes.
+  CHECK(MINS_TO_DANGER_SAMPLES * STATUS_PERIOD_MS == 120000UL);
+}
+
+// Adds `n` samples every 2 s from `startMs`: first + i * stepF.
+static uint32_t addRamp(TempHistory &h, uint32_t startMs, float first, float stepF, int n) {
+  uint32_t t = startMs;
+  for (int i = 0; i < n; i++, t += 2000) tempHistoryAdd(h, first + i * stepF, t);
+  return t;
+}
+
+static void test_mins_null_until_two_minutes_of_samples() {
+  TempHistory h;
+  tempHistoryInit(h);
+  // 0.1 F every 2 s = 3 F per minute.
+  addRamp(h, 0, 80.0f, 0.1f, 59);
+  CHECK(isnan(tempHistoryRateFPerMin(h)));
+  CHECK(isnan(tempHistoryMinsToDanger(h, 85.8f)));
+  tempHistoryAdd(h, 85.9f, 59 * 2000);
+  CHECK(near(tempHistoryRateFPerMin(h), 3.0f, 0.001f));
+  // (104 - 85.9) / 3 = 6.033..., rounded to 0.1.
+  CHECK(near(tempHistoryMinsToDanger(h, 85.9f), 6.0f, 0.0001f));
+}
+
+static void test_mins_doc_formula_with_literals() {
+  TempHistory h;
+  tempHistoryInit(h);
+  // 1 F every 2 s = 30 F per minute; (104 - 95) / 30 = 0.3.
+  addRamp(h, 0, 36.0f, 1.0f, 60);
+  CHECK(near(tempHistoryRateFPerMin(h), 30.0f, 0.01f));
+  CHECK(near(tempHistoryMinsToDanger(h, 95.0f), 0.3f, 0.0001f));
+  // 0.06 F per minute from 80 F: (104 - 80) / 0.06 = 400.
+  tempHistoryInit(h);
+  addRamp(h, 0, 79.9410f, 0.002f, 60);
+  CHECK(near(tempHistoryRateFPerMin(h), 0.06f, 0.0005f));
+  float m = tempHistoryMinsToDanger(h, 80.0f);
+  CHECK(m > 395.0f && m < 405.0f);
+  // Always a multiple of 0.1 (what the status line and LCD show).
+  CHECK(near(m * 10.0f, floorf(m * 10.0f + 0.5f), 0.01f));
+}
+
+static void test_mins_null_below_minimum_rate() {
+  TempHistory h;
+  // Flat.
+  tempHistoryInit(h);
+  addRamp(h, 0, 90.0f, 0.0f, 60);
+  CHECK(isnan(tempHistoryMinsToDanger(h, 90.0f)));
+  // 0.04 F per minute: below 0.05.
+  tempHistoryInit(h);
+  addRamp(h, 0, 90.0f, 0.04f / 30.0f, 60);
+  CHECK(isnan(tempHistoryMinsToDanger(h, 90.0f)));
+  // Cooling.
+  tempHistoryInit(h);
+  addRamp(h, 0, 100.0f, -0.5f, 60);
+  CHECK(isnan(tempHistoryMinsToDanger(h, 70.5f)));
+  // 0.06 F per minute: above 0.05, so a number.
+  tempHistoryInit(h);
+  addRamp(h, 0, 90.0f, 0.06f / 30.0f, 60);
+  CHECK(tempHistoryMinsToDanger(h, 90.0f) > 0.0f);
+}
+
+static void test_mins_zero_at_or_above_danger_temp() {
+  TempHistory h;
+  tempHistoryInit(h);
+  // No samples at all, or a flat or cooling cabin: still 0 at 104 F and up.
+  CHECK(tempHistoryMinsToDanger(h, 104.0f) == 0.0f);
+  CHECK(tempHistoryMinsToDanger(h, 120.0f) == 0.0f);
+  addRamp(h, 0, 110.0f, -0.1f, 60);
+  CHECK(tempHistoryMinsToDanger(h, 104.0f) == 0.0f);
+  CHECK(isnan(tempHistoryMinsToDanger(h, 103.9f)));
+  CHECK(isnan(tempHistoryMinsToDanger(h, NAN)));
+}
+
+static void test_mins_skips_nan_samples() {
+  TempHistory clean, gappy;
+  tempHistoryInit(clean);
+  tempHistoryInit(gappy);
+  addRamp(clean, 0, 80.0f, 0.1f, 60);
+  uint32_t t = 0;
+  for (int i = 0; i < 60; i++, t += 2000) {
+    tempHistoryAdd(gappy, NAN, t + 1000);
+    tempHistoryAdd(gappy, INFINITY, t + 1000);
+    tempHistoryAdd(gappy, 80.0f + i * 0.1f, t);
+  }
+  CHECK(gappy.count == MINS_TO_DANGER_SAMPLES);
+  CHECK(tempHistoryMinsToDanger(gappy, 85.9f) == tempHistoryMinsToDanger(clean, 85.9f));
+  // Only NaN readings: never enough samples.
+  TempHistory none;
+  tempHistoryInit(none);
+  for (int i = 0; i < 200; i++) tempHistoryAdd(none, NAN, i * 2000);
+  CHECK(none.count == 0);
+  CHECK(isnan(tempHistoryMinsToDanger(none, 90.0f)));
+}
+
+static void test_mins_window_is_the_last_60_samples() {
+  TempHistory h;
+  tempHistoryInit(h);
+  uint32_t t = addRamp(h, 0, 70.0f, 0.0f, 100);  // old flat readings
+  addRamp(h, t, 80.0f, 0.1f, 60);
+  CHECK(near(tempHistoryRateFPerMin(h), 3.0f, 0.001f));
+  CHECK(near(tempHistoryMinsToDanger(h, 85.9f), 6.0f, 0.0001f));
+}
+
+static void test_mins_uses_sample_times_and_survives_wraparound() {
+  // Uneven spacing, temperature linear in time at 3 F per minute.
+  TempHistory h;
+  tempHistoryInit(h);
+  uint32_t t = 0xFFFFFFFFUL - 30000;  // wraps partway through
+  for (int i = 0; i < 60; i++) {
+    uint32_t dt = (i % 3 == 0) ? 3000 : 1500;
+    t += dt;
+    tempHistoryAdd(h, 80.0f + (uint32_t)(t - (0xFFFFFFFFUL - 30000)) / 20000.0f, t);
+  }
+  CHECK(near(tempHistoryRateFPerMin(h), 3.0f, 0.001f));
+  // Every sample at the same time: no line, so null.
+  TempHistory same;
+  tempHistoryInit(same);
+  for (int i = 0; i < 60; i++) tempHistoryAdd(same, 80.0f + i, 5000);
+  CHECK(isnan(tempHistoryMinsToDanger(same, 90.0f)));
+}
+
+static AlertInputs carOffMins(float tempF, float mins, uint32_t nowMs) {
+  AlertInputs in = carOff(true, tempF, nowMs);
+  in.minsToDanger = mins;
+  return in;
+}
+
+static void test_mins_raise_warning_and_emergency_from_occupant() {
+  AlertState s;
+  uint32_t t = reachOccupant(s);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 10.1f, t += 2000)), LEVEL_OCCUPANT);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 10.0f, t += 2000)), LEVEL_WARNING);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 5.1f, t += 2000)), LEVEL_WARNING);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 5.0f, t += 2000)), LEVEL_EMERGENCY);
+
+  // Straight from OCCUPANT to EMERGENCY.
+  t = reachOccupant(s);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 2.1f, t += 2000)), LEVEL_EMERGENCY);
+  t = reachOccupant(s);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 0.0f, t += 2000)), LEVEL_EMERGENCY);
+}
+
+static void test_mins_null_or_negative_never_raises() {
+  AlertState s;
+  uint32_t t = reachOccupant(s);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, NAN, t += 2000)), LEVEL_OCCUPANT);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, -1.0f, t += 2000)), LEVEL_OCCUPANT);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, -INFINITY, t += 2000)), LEVEL_OCCUPANT);
+}
+
+static void test_mins_only_from_occupant_up() {
+  AlertState s;
+  alertInit(s);
+  AlertInputs in = carOffMins(COOL_F, 1.0f, 0);
+  in.ignitionOn = true;
+  CHECK_LEVEL(alertStep(s, in), LEVEL_IDLE);
+  // Armed, seat empty or not yet held long enough: minutes don't matter.
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 1.0f, 2000)), LEVEL_ARMED);
+  AlertInputs empty = carOffMins(COOL_F, 0.0f, 4000);
+  empty.seatOccupied = false;
+  CHECK_LEVEL(alertStep(s, empty), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 1.0f, 6000)), LEVEL_ARMED);
+  // Once the hold is done, the same step goes straight up.
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 1.0f, 6000 + OCCUPANT_AFTER_MS)),
+              LEVEL_EMERGENCY);
+}
+
+static void test_mins_levels_still_only_climb() {
+  AlertState s;
+  uint32_t t = reachOccupant(s);
+  alertStep(s, carOffMins(COOL_F, 8.0f, t += 2000));
+  CHECK_LEVEL(s.level, LEVEL_WARNING);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, NAN, t += 2000)), LEVEL_WARNING);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 60.0f, t += 2000)), LEVEL_WARNING);
+  alertStep(s, carOffMins(COOL_F, 4.0f, t += 2000));
+  CHECK_LEVEL(s.level, LEVEL_EMERGENCY);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, NAN, t += 2000)), LEVEL_EMERGENCY);
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 60.0f, t += 2000)), LEVEL_EMERGENCY);
+  // Cancel and ignition still clear it.
+  AlertInputs in = carOffMins(COOL_F, 1.0f, t += 2000);
+  in.cancelPressed = true;
+  CHECK_LEVEL(alertStep(s, in), LEVEL_ARMED);
+  in.cancelPressed = false;
+  in.ignitionOn = true;
+  CHECK_LEVEL(alertStep(s, in), LEVEL_IDLE);
+}
+
+// The box end to end: two minutes of flat readings, the seat held, then a
+// hair-dryer ramp. WARNING and EMERGENCY start on whichever condition comes
+// first, here the minutes, well below 95 F.
+static void test_mins_box_run_starts_alarm_on_first_condition() {
+  TempHistory h;
+  tempHistoryInit(h);
+  AlertState s;
+  alertInit(s);
+  uint32_t t = 0;
+  float temp = 80.0f;
+  int warningAt = -1, emergencyAt = -1;
+  float warningTemp = 0.0f, emergencyTemp = 0.0f;
+  for (int i = 0; i < 120; i++, t += 2000) {
+    bool seated = i >= 60;
+    if (i >= 76) temp += 1.2f;  // 36 F per minute
+    tempHistoryAdd(h, temp, t);
+    float mins = tempHistoryMinsToDanger(h, temp);
+    // Null or >= 0, and 0 at or above the danger temperature.
+    CHECK(isnan(mins) || mins >= 0.0f);
+    if (temp >= DANGER_TEMP_F) CHECK(mins == 0.0f);
+    if (i < 59) CHECK(isnan(mins));
+    AlertInputs in = carOff(seated, temp, t);
+    in.minsToDanger = mins;
+    AlertLevel before = s.level;
+    alertStep(s, in);
+    bool warnCond = temp >= WARNING_TEMP_F || (mins >= 0.0f && mins <= WARNING_MINS);
+    bool emerCond = temp >= EMERGENCY_TEMP_F || (mins >= 0.0f && mins <= EMERGENCY_MINS);
+    if (before >= LEVEL_OCCUPANT && before < LEVEL_WARNING) {
+      // The first step that meets a condition is the one that climbs.
+      CHECK((s.level >= LEVEL_WARNING) == (warnCond || emerCond));
+    }
+    if (before >= LEVEL_OCCUPANT && before < LEVEL_EMERGENCY) {
+      CHECK((s.level == LEVEL_EMERGENCY) == emerCond);
+    }
+    if (warningAt < 0 && s.level >= LEVEL_WARNING) { warningAt = i; warningTemp = temp; }
+    if (emergencyAt < 0 && s.level == LEVEL_EMERGENCY) { emergencyAt = i; emergencyTemp = temp; }
+  }
+  CHECK(warningAt > 0 && emergencyAt > warningAt);
+  CHECK(warningTemp < WARNING_TEMP_F);
+  CHECK(emergencyTemp < EMERGENCY_TEMP_F);
+  CHECK_LEVEL(s.level, LEVEL_EMERGENCY);
+}
+
+static void test_status_line_mins_to_danger_number_or_null() {
+  char buf[STATUS_LINE_MAX];
+  StatusFields f = sampleFields();
+  f.minsToDanger = 7.5f;
+  uint16_t n = statusFormat(buf, sizeof buf, f);
+  // The doc's example line, without the pending `light` and the unwired fields.
+  const char *want =
+      "{\"state\":\"WARNING\",\"tempF\":96.4,\"humidity\":41,\"presence\":true,"
+      "\"distanceCm\":38,\"motion\":null,\"minsToDanger\":7.5,\"battery\":null}";
+  CHECK(strcmp(buf, want) == 0);
+  CHECK(n == strlen(want));
+  if (strcmp(buf, want) != 0) printf("  got  %s\n  want %s\n", buf, want);
+
+  f.minsToDanger = 0.0f;
+  CHECK(statusFormat(buf, sizeof buf, f) > 0);
+  CHECK(strstr(buf, "\"minsToDanger\":0.0,") != NULL);
+  f.minsToDanger = 6.0333f;
+  statusFormat(buf, sizeof buf, f);
+  CHECK(strstr(buf, "\"minsToDanger\":6.0,") != NULL);
+  f.minsToDanger = 412.3f;
+  statusFormat(buf, sizeof buf, f);
+  CHECK(strstr(buf, "\"minsToDanger\":412.3,") != NULL);
+
+  // Unknown or unwritable: null, and the line is still sent.
+  float nulls[] = {NAN, -0.1f, -INFINITY, INFINITY, 1e9f};
+  for (unsigned i = 0; i < sizeof nulls / sizeof nulls[0]; i++) {
+    f.minsToDanger = nulls[i];
+    CHECK(statusFormat(buf, sizeof buf, f) > 0);
+    CHECK(strstr(buf, "\"minsToDanger\":null,") != NULL);
+  }
+
+  // The longest possible line still fits.
+  f.level = LEVEL_EMERGENCY;
+  f.tempF = -99999.9f;
+  f.humidity = -99999.0f;
+  f.distanceCm = -99999.0f;
+  f.minsToDanger = 99999.9f;
+  n = statusFormat(buf, sizeof buf, f);
+  CHECK(n > 0 && n < STATUS_LINE_MAX);
+}
+
+static void test_lcd_line2_shows_computed_minutes() {
+  TempHistory h;
+  tempHistoryInit(h);
+  addRamp(h, 0, 80.0f, 0.1f, 60);
+  char line[LCD_LINE_BUF];
+  lcdLine2(line, LEVEL_WARNING, tempHistoryMinsToDanger(h, 85.9f), false, 0);
+  CHECK(strcmp(line, "DANGER IN 6.0m  ") == 0);
+  lcdLine2(line, LEVEL_EMERGENCY, tempHistoryMinsToDanger(h, 104.0f), false, 0);
+  CHECK(strcmp(line, "DANGER IN 0.0m  ") == 0);
+}
+
+// The smoke check's synthetic recording, replayed through this file's box
+// code: one temperature sample and one alertStep per line, 2 s apart (IDLE
+// lines mean the ignition is in). Every line's minsToDanger and state must be
+// exactly what the box would send. The path is relative to this file, so
+// logic-test must run from the repo root (as the Checks row does).
+static void test_recording_matches_box_logic() {
+  char path[512];
+  const char *self = __FILE__;
+  const char *slash = strrchr(self, '/');
+  int dirLen = slash ? (int)(slash - self) : 0;
+  snprintf(path, sizeof path, "%.*s%s../../../simulator/recordings/synthetic-ignition-off-to-emergency.jsonl",
+           dirLen, self, slash ? "/" : "");
+  FILE *f = fopen(path, "r");
+  CHECK(f != NULL);
+  if (!f) {
+    printf("  could not open %s\n", path);
+    return;
+  }
+  TempHistory h;
+  tempHistoryInit(h);
+  AlertState s;
+  alertInit(s);
+  char line[512];
+  int n = 0, numbers = 0, early = 0;
+  while (fgets(line, sizeof line, f)) {
+    if (line[0] != '{') continue;
+    const char *st = strstr(line, "\"state\":\"");
+    const char *tf = strstr(line, "\"tempF\":");
+    const char *pr = strstr(line, "\"presence\":");
+    const char *md = strstr(line, "\"minsToDanger\":");
+    CHECK(st && tf && pr && md);
+    if (!(st && tf && pr && md)) break;
+    st += strlen("\"state\":\"");
+    float temp = strtof(tf + strlen("\"tempF\":"), NULL);
+    uint32_t now = (uint32_t)n * STATUS_PERIOD_MS;
+
+    tempHistoryAdd(h, temp, now);
+    float mins = tempHistoryMinsToDanger(h, temp);
+    AlertInputs in = carOff(strncmp(pr + strlen("\"presence\":"), "true", 4) == 0, temp, now);
+    in.ignitionOn = strncmp(st, "IDLE\"", 5) == 0;
+    in.minsToDanger = mins;
+    AlertLevel level = alertStep(s, in);
+
+    char want[16];
+    StrBuf b = {want, sizeof want, 0, true};
+    if (isnan(mins)) {
+      sbPuts(b, "null");
+    } else {
+      sbPutFixed1(b, mins);
+      numbers++;
+    }
+    want[b.len] = '\0';
+    const char *got = md + strlen("\"minsToDanger\":");
+    bool sameMins = strncmp(got, want, b.len) == 0 && (got[b.len] == ',' || got[b.len] == '}');
+    const char *name = alertLevelName(level);
+    bool sameState = strncmp(st, name, strlen(name)) == 0 && st[strlen(name)] == '"';
+    CHECK(sameMins);
+    CHECK(sameState);
+    if (!sameMins || !sameState) printf("  recording line %d: box sends %s, minsToDanger %s\n", n + 1, name, want);
+    if (level >= LEVEL_WARNING && temp < WARNING_TEMP_F) early++;
+    n++;
+  }
+  fclose(f);
+  // The recording exercises numbers and minutes-started alarms, not only nulls.
+  CHECK(n > MINS_TO_DANGER_SAMPLES);
+  CHECK(numbers > 0);
+  CHECK(early > 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1290,6 +1657,22 @@ int main() {
   test_lcd_line2_per_level();
   test_lcd_line2_unknown_and_huge_minutes();
   test_lcd_shows_sim_when_simulating();
+  test_mins_constants_match_doc();
+  test_mins_null_until_two_minutes_of_samples();
+  test_mins_doc_formula_with_literals();
+  test_mins_null_below_minimum_rate();
+  test_mins_zero_at_or_above_danger_temp();
+  test_mins_skips_nan_samples();
+  test_mins_window_is_the_last_60_samples();
+  test_mins_uses_sample_times_and_survives_wraparound();
+  test_mins_raise_warning_and_emergency_from_occupant();
+  test_mins_null_or_negative_never_raises();
+  test_mins_only_from_occupant_up();
+  test_mins_levels_still_only_climb();
+  test_mins_box_run_starts_alarm_on_first_condition();
+  test_status_line_mins_to_danger_number_or_null();
+  test_lcd_line2_shows_computed_minutes();
+  test_recording_matches_box_logic();
   test_line_reader_keeps_json_line_without_crlf();
   test_line_reader_returns_true_only_on_newline();
   test_line_reader_drops_lines_not_starting_with_brace();

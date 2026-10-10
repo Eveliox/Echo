@@ -20,11 +20,40 @@ const OCCUPANT_AFTER_MS = constant('OCCUPANT_AFTER_MS');
 const STATUS_PERIOD_MS = constant('STATUS_PERIOD_MS');
 const WARNING_TEMP_F = constant('WARNING_TEMP_F');
 const EMERGENCY_TEMP_F = constant('EMERGENCY_TEMP_F');
+const MINS_TO_DANGER_SAMPLES = constant('MINS_TO_DANGER_SAMPLES');
+const DANGER_TEMP_F = constant('DANGER_TEMP_F');
+const MIN_WARMING_RATE_F_PER_MIN = constant('MIN_WARMING_RATE_F_PER_MIN');
+const WARNING_MINS = constant('WARNING_MINS');
+const EMERGENCY_MINS = constant('EMERGENCY_MINS');
+
+// docs/firmware.md "Minutes to danger", as the box does it: a least-squares
+// line through the last MINS_TO_DANGER_SAMPLES readings (one per status, so
+// one per line, from the first line on), rounded to 0.1 minute. null below
+// the minimum warming rate or before the window is full; 0 at or above the
+// danger temperature. This test only checks the recording; the box's own math
+// is tested in firmware/mega/test/logic_test.cpp.
+function expectedMinsToDanger(temps, i) {
+  const current = temps[i];
+  if (current >= DANGER_TEMP_F) return 0;
+  if (i + 1 < MINS_TO_DANGER_SAMPLES) return null;
+  const window = temps.slice(i + 1 - MINS_TO_DANGER_SAMPLES, i + 1);
+  const xs = window.map((_, j) => (j * STATUS_PERIOD_MS) / 60_000);
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+  const mx = mean(xs);
+  const my = mean(window);
+  let sxy = 0;
+  let sxx = 0;
+  xs.forEach((x, j) => { sxy += (x - mx) * (window[j] - my); sxx += (x - mx) ** 2; });
+  const rate = sxy / sxx;
+  if (!(rate >= MIN_WARMING_RATE_F_PER_MIN)) return null;
+  return Math.floor(((DANGER_TEMP_F - current) / rate) * 10 + 0.5) / 10;
+}
 
 const lines = statusLines(readFileSync(DEFAULT_RECORDING, 'utf8'));
 const statuses = lines.map((line) => JSON.parse(line));
 const rank = (s) => STATES.indexOf(s.state);
 const firstOf = (state) => statuses.findIndex((s) => s.state === state);
+const temps = statuses.map((s) => s.tempF);
 
 test('every line is a status the server accepts, as the box sends it today', () => {
   assert.ok(statuses.length > 0);
@@ -33,8 +62,34 @@ test('every line is a status the server accepts, as the box sends it today', () 
     assert.ok(!('light' in s), `line ${i + 1}: light is pending, the box does not send it`);
     assert.equal(s.motion, null, `line ${i + 1}`);
     assert.equal(s.battery, null, `line ${i + 1}`);
-    assert.equal(s.minsToDanger, null, `line ${i + 1}`);
+    assert.equal(s.minsToDanger, expectedMinsToDanger(temps, i), `line ${i + 1}: minsToDanger`);
   });
+});
+
+test('minsToDanger is null or >= 0, null for the first 2 minutes, and 0 at or above the danger temperature', () => {
+  statuses.forEach((s, i) => {
+    assert.ok(s.minsToDanger === null || s.minsToDanger >= 0, `line ${i + 1}`);
+    if (s.tempF >= DANGER_TEMP_F) assert.equal(s.minsToDanger, 0, `line ${i + 1}`);
+    else if (i + 1 < MINS_TO_DANGER_SAMPLES) assert.equal(s.minsToDanger, null, `line ${i + 1}`);
+  });
+  // The recording exercises real numbers, not only null and 0.
+  assert.ok(statuses.some((s) => s.minsToDanger > 0));
+});
+
+test('the minutes-to-danger check follows the doc with literal values', () => {
+  // Pinned to docs/firmware.md, so the parsed constants can't drift unnoticed.
+  assert.equal(MINS_TO_DANGER_SAMPLES, 60);
+  assert.equal(DANGER_TEMP_F, 104);
+  assert.equal(MIN_WARMING_RATE_F_PER_MIN, 0.05);
+  assert.equal(WARNING_MINS, 10);
+  assert.equal(EMERGENCY_MINS, 5);
+  // 3 F per minute ending at 85.9 F: (104 - 85.9) / 3 = 6.03, sent as 6.0.
+  const ramp = Array.from({ length: 60 }, (_, j) => 80 + j * 0.1);
+  assert.equal(expectedMinsToDanger(ramp, 59), 6);
+  assert.equal(expectedMinsToDanger(ramp, 58), null, 'one sample short of 2 minutes');
+  assert.equal(expectedMinsToDanger(Array(60).fill(90), 59), null, 'flat');
+  assert.equal(expectedMinsToDanger(Array.from({ length: 60 }, (_, j) => 90 + j * 0.04 / 30), 59), null, '0.04 F/min');
+  assert.equal(expectedMinsToDanger([104], 0), 0, 'at the danger temperature, even with one sample');
 });
 
 test('levels never drop and climb IDLE, ARMED, OCCUPANT, WARNING, EMERGENCY in order', () => {
@@ -55,13 +110,17 @@ test('OCCUPANT comes only after the seat has been occupied for the hold time', (
   assert.ok(statuses.slice(firstPresent).every((s) => s.presence), 'the seat stays occupied');
 });
 
-test('WARNING and EMERGENCY start at their temperatures (minsToDanger is null)', () => {
-  const warning = firstOf('WARNING');
-  const emergency = firstOf('EMERGENCY');
-  assert.ok(statuses.slice(0, warning).every((s) => s.tempF < WARNING_TEMP_F));
-  assert.ok(statuses[warning].tempF >= WARNING_TEMP_F);
-  assert.ok(statuses.slice(0, emergency).every((s) => s.tempF < EMERGENCY_TEMP_F));
-  assert.ok(statuses[emergency].tempF >= EMERGENCY_TEMP_F);
+test('WARNING and EMERGENCY start on the first condition met: temperature or minutes to danger', () => {
+  const known = (m) => m !== null && m >= 0;
+  const warns = (s) => s.tempF >= WARNING_TEMP_F || (known(s.minsToDanger) && s.minsToDanger <= WARNING_MINS);
+  const emergency = (s) => s.tempF >= EMERGENCY_TEMP_F || (known(s.minsToDanger) && s.minsToDanger <= EMERGENCY_MINS);
+  const occupant = firstOf('OCCUPANT');
+  const firstFrom = (pred) => occupant + statuses.slice(occupant).findIndex(pred);
+  assert.equal(firstOf('WARNING'), firstFrom((s) => warns(s) || emergency(s)));
+  assert.equal(firstOf('EMERGENCY'), firstFrom(emergency));
+  // In this recording the minutes come first, below both temperatures.
+  assert.ok(statuses[firstOf('WARNING')].tempF < WARNING_TEMP_F);
+  assert.ok(statuses[firstOf('EMERGENCY')].tempF < EMERGENCY_TEMP_F);
 });
 
 test('it ends in EMERGENCY held for several statuses, so the ladder dedup is exercised', () => {

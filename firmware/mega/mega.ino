@@ -3,7 +3,8 @@
 // STATUS_PERIOD_MS to USB Serial and to the ESP8266 on Serial1.
 // If the power-up seat baseline fails, it shows a fault code on the RGB LED
 // until a power cycle with the seat empty. The RGB LED, buzzer, and LCD follow
-// the alert level; minutes to danger comes in a later ticket.
+// the alert level. Each temperature reading also feeds minutes to danger,
+// which can raise WARNING and EMERGENCY and is sent and shown on the LCD.
 //
 // Libraries: "DHT sensor library" by Adafruit (see docs/firmware.md, "Setup and
 // build order") and the built-in LiquidCrystal.
@@ -67,9 +68,6 @@ const unsigned long PING_TIMEOUT_US = 25000UL;
 const unsigned long PING_GAP_MS = 60UL;
 const float US_PER_CM = 58.0f;  // round-trip microseconds per cm
 
-// Not known until the minutes-to-danger ticket; NaN shows as unknown on the LCD.
-const float MINS_TO_DANGER_UNKNOWN = NAN;
-
 DHT dht(DHT_PIN, DHT11);
 LiquidCrystal lcd(LCD_RS_PIN, LCD_E_PIN, LCD_D4_PIN, LCD_D5_PIN, LCD_D6_PIN, LCD_D7_PIN);
 
@@ -79,6 +77,7 @@ Debouncer cancelButton;
 Periodic statusTimer;
 HumidityHold humidity;
 LevelClock levelClock;
+TempHistory tempHistory;
 
 float tempF = SIM_START_F;
 float simTempF = SIM_START_F;
@@ -86,6 +85,8 @@ unsigned long lastSimUpdate = 0;
 // Last good distance: the server needs a number, so a failed read repeats the
 // previous value instead of breaking the line.
 float distanceCm = 0.0f;
+// From tempHistory after each temperature reading; NaN = null (unknown).
+float minsToDanger = NAN;
 
 // Off during setup() so the power-up baseline pings don't flash the fault code.
 bool outputsLive = false;
@@ -147,6 +148,8 @@ void readSlowSensors() {
 
   float t = readTempF();
   if (!isnan(t)) tempF = t;
+  tempHistoryAdd(tempHistory, t, millis());  // skips a failed (NaN) reading
+  minsToDanger = tempHistoryMinsToDanger(tempHistory, tempF);
 
   readHumidity();
 }
@@ -159,6 +162,7 @@ void sendStatus() {
   f.humidity = humidityCurrent(humidity, millis(), h) ? h : HUMIDITY_PLACEHOLDER;
   f.presence = seat.occupied;
   f.distanceCm = distanceCm;
+  f.minsToDanger = minsToDanger;
   char line[STATUS_LINE_MAX];
   if (statusFormat(line, sizeof line, f) == 0) return;
   Serial.println(line);
@@ -207,7 +211,7 @@ void updateLcd(uint32_t now) {
   char line[LCD_LINE_BUF];
   lcdLine1(line, alertState.level, tempF);
   showLcdLine(0, line);
-  lcdLine2(line, alertState.level, MINS_TO_DANGER_UNKNOWN, SIMULATE_TEMP, now);
+  lcdLine2(line, alertState.level, minsToDanger, SIMULATE_TEMP, now);
   showLcdLine(1, line);
 }
 
@@ -251,6 +255,7 @@ void setup() {
   lastSimUpdate = millis();
   humidityInit(humidity);
   readHumidity();
+  tempHistoryInit(tempHistory);
 
   alertInit(alertState);
   levelClockInit(levelClock, alertState.level, millis());
@@ -270,6 +275,7 @@ void loop() {
   in.cancelPressed = debounceUpdate(cancelButton, digitalRead(CANCEL_PIN) == LOW, millis());
   in.seatOccupied = seat.occupied;
   in.tempF = tempF;
+  in.minsToDanger = minsToDanger;
   in.nowMs = millis();
   alertStep(alertState, in);
   levelClockUpdate(levelClock, alertState.level, millis());

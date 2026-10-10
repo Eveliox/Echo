@@ -125,19 +125,105 @@ inline bool seatUpdate(SeatDetector &s, const float pings[SEAT_PINGS_PER_READING
 // --- end seat detection ----------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Minutes to danger ("Minutes to danger" in docs/firmware.md, "Firmware
+// behavior"): a least-squares line through the last MINS_TO_DANGER_SAMPLES
+// temperature samples gives the warming rate in F per minute.
+//
+// Decisions not in the doc (pinned by tests in test/logic_test.cpp):
+// - The sketch adds one sample per status period. The fit uses each sample's
+//   own millis() time (wraparound handled), so a late sample doesn't skew it.
+// - A NaN or infinite reading is skipped, not stored: it never poisons the fit.
+//   "2 minutes of samples" means MINS_TO_DANGER_SAMPLES stored good samples, so
+//   after skipped readings the window reaches a little further back.
+// - At or above DANGER_TEMP_F the value is 0 even with too few samples or a
+//   low rate; that is known from the current reading alone.
+// - The value is rounded to 0.1 min, the precision the status line and LCD
+//   show, and the levels decide on that same value. Rounding can only make an
+//   alarm start earlier (by at most 3 s), never later.
+// - NaN means null. A negative value is never produced; callers treat one as
+//   null too.
+// ---------------------------------------------------------------------------
+
+static const uint8_t MINS_TO_DANGER_SAMPLES = 60;
+static const float DANGER_TEMP_F = 104.0f;
+static const float MIN_WARMING_RATE_F_PER_MIN = 0.05f;
+
+struct TempHistory {
+  float tempF[MINS_TO_DANGER_SAMPLES];
+  uint32_t atMs[MINS_TO_DANGER_SAMPLES];
+  uint8_t next;   // slot the next sample goes in; the oldest once full
+  uint8_t count;  // good samples stored, up to MINS_TO_DANGER_SAMPLES
+};
+
+inline void tempHistoryInit(TempHistory &h) {
+  h.next = 0;
+  h.count = 0;
+}
+
+// Stores one temperature sample taken at `nowMs`; NaN or infinite is skipped.
+inline void tempHistoryAdd(TempHistory &h, float tempF, uint32_t nowMs) {
+  if (isnan(tempF) || isinf(tempF)) return;
+  h.tempF[h.next] = tempF;
+  h.atMs[h.next] = nowMs;
+  h.next = (uint8_t)((h.next + 1) % MINS_TO_DANGER_SAMPLES);
+  if (h.count < MINS_TO_DANGER_SAMPLES) h.count++;
+}
+
+// Least-squares warming rate in F per minute over the stored window; NaN
+// until the window is full or if all samples share one time.
+inline float tempHistoryRateFPerMin(const TempHistory &h) {
+  if (h.count < MINS_TO_DANGER_SAMPLES) return NAN;
+  // Times and temperatures relative to the oldest sample, for float precision.
+  uint32_t t0 = h.atMs[h.next];
+  float y0 = h.tempF[h.next];
+  float sumX = 0.0f, sumY = 0.0f;
+  for (uint8_t i = 0; i < MINS_TO_DANGER_SAMPLES; i++) {
+    sumX += (uint32_t)(h.atMs[i] - t0) / 60000.0f;
+    sumY += h.tempF[i] - y0;
+  }
+  float meanX = sumX / MINS_TO_DANGER_SAMPLES;
+  float meanY = sumY / MINS_TO_DANGER_SAMPLES;
+  float sxx = 0.0f, sxy = 0.0f;
+  for (uint8_t i = 0; i < MINS_TO_DANGER_SAMPLES; i++) {
+    float dx = (uint32_t)(h.atMs[i] - t0) / 60000.0f - meanX;
+    sxx += dx * dx;
+    sxy += dx * (h.tempF[i] - y0 - meanY);
+  }
+  if (!(sxx > 0.0f)) return NAN;
+  return sxy / sxx;
+}
+
+// Minutes until DANGER_TEMP_F at the fitted warming rate, rounded to 0.1;
+// NaN (null) below MIN_WARMING_RATE_F_PER_MIN or before the window is full;
+// 0 when `currentF` is already at or above DANGER_TEMP_F.
+inline float tempHistoryMinsToDanger(const TempHistory &h, float currentF) {
+  if (isnan(currentF)) return NAN;
+  if (currentF >= DANGER_TEMP_F) return 0.0f;
+  float rate = tempHistoryRateFPerMin(h);
+  if (!(rate >= MIN_WARMING_RATE_F_PER_MIN)) return NAN;  // false for NaN too
+  float mins = (DANGER_TEMP_F - currentF) / rate;
+  return floorf(mins * 10.0f + 0.5f) / 10.0f;
+}
+
+// --- end minutes to danger -------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Alert levels (level table and "Leaving a level" in docs/firmware.md,
-// "Firmware behavior"). Temperature thresholds only for now; minutes-to-danger
-// is added later.
+// "Firmware behavior"). WARNING and EMERGENCY enter on temperature or on
+// minutes to danger, whichever comes first.
 //
 // Decisions not in the doc (pinned by tests in test/logic_test.cpp):
 // - OCCUPANT is sticky like WARNING and EMERGENCY: an empty seat never lowers it.
 // - Ignition wins over cancel when both are active.
 // - Cancel is read as held, not edge-triggered; debouncing is the sketch's job.
+// - Unknown minutes to danger (NaN or negative) never raises a level.
 // ---------------------------------------------------------------------------
 
 static const uint32_t OCCUPANT_AFTER_MS = 30000UL;
 static const float WARNING_TEMP_F = 95.0f;
 static const float EMERGENCY_TEMP_F = 104.0f;
+static const float WARNING_MINS = 10.0f;
+static const float EMERGENCY_MINS = 5.0f;
 
 enum AlertLevel : uint8_t {
   LEVEL_IDLE,
@@ -153,6 +239,7 @@ struct AlertInputs {
   bool cancelPressed;  // physical cancel button held
   bool seatOccupied;   // seat-detection result
   float tempF;         // cabin temperature; NaN never raises a level
+  float minsToDanger;  // tempHistoryMinsToDanger; NaN or negative never raises a level
   uint32_t nowMs;      // millis(); wraparound is handled
 };
 
@@ -177,6 +264,11 @@ inline const char *alertLevelName(AlertLevel level) {
     case LEVEL_EMERGENCY: return "EMERGENCY";
   }
   return "IDLE";
+}
+
+// True when minutes to danger is known and at most `limit`.
+inline bool minsKnownAtMost(float mins, float limit) {
+  return mins >= 0.0f && mins <= limit;  // false for NaN too
 }
 
 // Advances the level from one set of inputs and returns it.
@@ -215,9 +307,10 @@ inline AlertLevel alertStep(AlertState &s, const AlertInputs &in) {
 
   // From OCCUPANT up, the seat no longer matters; only heat climbs the level.
   if (s.level >= LEVEL_OCCUPANT && s.level < LEVEL_EMERGENCY) {
-    if (in.tempF >= EMERGENCY_TEMP_F) {
+    if (in.tempF >= EMERGENCY_TEMP_F || minsKnownAtMost(in.minsToDanger, EMERGENCY_MINS)) {
       s.level = LEVEL_EMERGENCY;
-    } else if (in.tempF >= WARNING_TEMP_F && s.level < LEVEL_WARNING) {
+    } else if ((in.tempF >= WARNING_TEMP_F || minsKnownAtMost(in.minsToDanger, WARNING_MINS)) &&
+               s.level < LEVEL_WARNING) {
       s.level = LEVEL_WARNING;
     }
   }
@@ -397,8 +490,10 @@ inline bool humidityCurrent(HumidityHold &h, uint32_t nowMs, float &out) {
 // ---------------------------------------------------------------------------
 // Status line ("Data format and Wi-Fi" in docs/firmware.md). Field names,
 // order, and types follow the doc. `light` is pending approval, so it is left
-// out. `motion`, `minsToDanger`, and `battery` are sent as null until their
-// tickets land.
+// out. `motion` and `battery` are sent as null until their tickets land.
+// `minsToDanger` has one decimal, like tempF; NaN or negative is null. A value
+// too big for the number writer is also sent as null rather than dropping the
+// line (it can't happen with real readings).
 //
 // No snprintf: avr-libc's printf family has no %f, so numbers are written by
 // hand. tempF has one decimal; humidity and distanceCm are rounded integers.
@@ -416,6 +511,7 @@ struct StatusFields {
   float humidity;
   bool presence;
   float distanceCm;
+  float minsToDanger;  // NaN or negative: null
 };
 
 struct StrBuf {
@@ -494,7 +590,13 @@ inline uint16_t statusFormat(char *out, uint16_t cap, const StatusFields &f) {
   sbPuts(b, f.presence ? "true" : "false");
   sbPuts(b, ",\"distanceCm\":");
   sbPutRounded(b, f.distanceCm);
-  sbPuts(b, ",\"motion\":null,\"minsToDanger\":null,\"battery\":null}");
+  sbPuts(b, ",\"motion\":null,\"minsToDanger\":");
+  if (f.minsToDanger >= 0.0f && statusNumOk(f.minsToDanger)) {
+    sbPutFixed1(b, f.minsToDanger);
+  } else {
+    sbPuts(b, "null");
+  }
+  sbPuts(b, ",\"battery\":null}");
   if (!b.ok) {
     out[0] = '\0';
     return 0;
