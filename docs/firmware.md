@@ -123,7 +123,8 @@ The Mega sends one JSON line every 2 seconds on Serial1; the ESP8266 reads each 
 - If USB and the battery pack are both plugged in, the Mega picks the right source on its own.
 - The 6-cell AA pack (9V) runs the box for several hours with the LCD and Wi-Fi on. Put fresh batteries in before the demo.
 - The Mega's regulator gets warm feeding the ESP. That's fine for a demo; if it gets too hot to touch, power the ESP from a USB power bank.
-- Battery reading: battery + (the Mega's VIN pin) → 10kΩ → A0 → 10kΩ → − rail. This halves the voltage so A0 reads it safely (batteries up to 10V). Without it, the firmware sends `battery: null`.
+- Battery reading: the Mega's VIN pin (not the pack's + or the barrel jack) → 10kΩ → A0 → 10kΩ → − rail. This halves the voltage so A0 reads it safely (batteries up to 10V). Without it, the firmware sends `battery: null`.
+- Battery level (pending Eve's OK): measured at the pack's terminals, 7.0 V = 0 % (empty) and 9.0 V = 100 % (full), linear between, clamped to 0–100. VIN sits after the Mega's reverse-polarity diode, so it reads about 0.7 V below the pack; the firmware adds that drop back. Below 5.5 V at the pack (e.g. on laptop USB with no pack) the firmware sends `battery: null`, not 0. The reading assumes the Mega's 5 V rail holds; near empty the rail sags and the percentage reads a little high.
 
 ## Firmware behavior
 
@@ -193,7 +194,7 @@ The Mega sends the status message every 2 seconds; each message doubles as the h
 { "state": "WARNING", "tempF": 96.4, "humidity": 41, "light": 812, "presence": true, "distanceCm": 38, "motion": false, "minsToDanger": 7.5, "battery": 88 }
 ```
 
-`humidity`, `distanceCm`, and `motion` are approved by both teammates. `light` (photoresistor reading, 0–1023) is new and needs both teammates' OK before it ships. `motion` is `null` when the PIR is unplugged; `battery` is `null` without the A0 divider.
+`humidity`, `distanceCm`, and `motion` are approved by both teammates. `light` (photoresistor reading, 0–1023) is new and needs both teammates' OK before it ships. `motion` is `null` when the PIR is unplugged; `battery` is `null` without the A0 divider or with no pack connected.
 
 **Wi-Fi setup for the demo:**
 

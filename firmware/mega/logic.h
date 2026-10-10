@@ -488,9 +488,57 @@ inline bool humidityCurrent(HumidityHold &h, uint32_t nowMs, float &out) {
 // --- end fault indicator, humidity age -------------------------------------
 
 // ---------------------------------------------------------------------------
+// Battery ("Power" in docs/firmware.md): pack + (the Mega's VIN pin) -> 10k ->
+// A0 -> 10k -> - rail, so A0 sees half of VIN. VIN sits one diode drop below
+// the pack, so the drop is added back. Empty and full pack voltages come from
+// the doc; the percentage is linear between them, clamped to 0-100, rounded.
+//
+// Decisions not in the doc (pinned by tests in test/logic_test.cpp):
+// - BATTERY_DIODE_DROP_V is a typical drop for the Mega's input diode at the
+//   box's current draw, not a measurement.
+// - A pack below BATTERY_NO_PACK_V is "no reading" (null), not 0 %: on laptop
+//   USB with no pack, VIN is unpowered (or back-fed a few volts through the
+//   regulator) and must not show up as an empty battery. A 6-AA pack that low
+//   could not run the Mega anyway.
+// ---------------------------------------------------------------------------
+
+static const float BATTERY_EMPTY_V = 7.0f;
+static const float BATTERY_FULL_V = 9.0f;
+static const float BATTERY_DIVIDER_RATIO = 2.0f;  // two equal resistors
+static const float BATTERY_DIODE_DROP_V = 0.7f;
+static const float BATTERY_NO_PACK_V = 5.5f;
+static const int8_t BATTERY_NULL = -1;  // sent as `battery: null`
+
+// Average A0 ADC reading -> volts at the battery pack's terminals.
+inline float batteryAdcToPackV(float avgAdc) {
+  return avgAdc * ADC_REF_V / ADC_MAX * BATTERY_DIVIDER_RATIO + BATTERY_DIODE_DROP_V;
+}
+
+// Pack volts -> 0-100, or BATTERY_NULL for no pack (or NaN).
+inline int8_t batteryPercent(float packV) {
+  if (!(packV >= BATTERY_NO_PACK_V)) return BATTERY_NULL;  // NaN too
+  float pct = (packV - BATTERY_EMPTY_V) / (BATTERY_FULL_V - BATTERY_EMPTY_V) * 100.0f;
+  if (pct < 0.0f) pct = 0.0f;
+  if (pct > 100.0f) pct = 100.0f;
+  return (int8_t)(pct + 0.5f);
+}
+
+// Average A0 ADC reading -> 0-100, or BATTERY_NULL.
+inline int8_t batteryFromAdc(float avgAdc) { return batteryPercent(batteryAdcToPackV(avgAdc)); }
+
+// What the status line sends: always BATTERY_NULL without the A0 divider
+// (BATTERY_DIVIDER_WIRED in the sketch), since A0 then floats.
+inline int8_t batteryStatus(bool dividerWired, float avgAdc) {
+  return dividerWired ? batteryFromAdc(avgAdc) : BATTERY_NULL;
+}
+
+// --- end battery -----------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Status line ("Data format and Wi-Fi" in docs/firmware.md). Field names,
 // order, and types follow the doc. `light` is pending approval, so it is left
-// out. `motion` and `battery` are sent as null until their tickets land.
+// out. `motion` is sent as null until its ticket lands. `battery` is 0-100, or
+// null for any other value (BATTERY_NULL).
 // `minsToDanger` has one decimal, like tempF; NaN or negative is null. A value
 // too big for the number writer is also sent as null rather than dropping the
 // line (it can't happen with real readings).
@@ -512,6 +560,7 @@ struct StatusFields {
   bool presence;
   float distanceCm;
   float minsToDanger;  // NaN or negative: null
+  int8_t battery;      // 0-100; anything else (BATTERY_NULL): null
 };
 
 struct StrBuf {
@@ -596,7 +645,13 @@ inline uint16_t statusFormat(char *out, uint16_t cap, const StatusFields &f) {
   } else {
     sbPuts(b, "null");
   }
-  sbPuts(b, ",\"battery\":null}");
+  sbPuts(b, ",\"battery\":");
+  if (f.battery >= 0 && f.battery <= 100) {
+    sbPutUint(b, (uint32_t)f.battery);
+  } else {
+    sbPuts(b, "null");
+  }
+  sbPutc(b, '}');
   if (!b.ok) {
     out[0] = '\0';
     return 0;

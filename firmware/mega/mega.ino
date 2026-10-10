@@ -17,6 +17,10 @@
 // Test-only: the joystick replaces the LM35. Must be false for the demo.
 const bool SIMULATE_TEMP = false;
 
+// True once the two 10k resistors on A0 are in (docs/firmware.md, "Power").
+// False: `battery` is always sent as null and A0 is never read.
+const bool BATTERY_DIVIDER_WIRED = false;
+
 // Pins: docs/firmware.md, "Mega pin map".
 const uint8_t DHT_PIN = 2;
 const uint8_t IGNITION_PIN = 4;  // jumper to GND: plugged in (LOW) = car on
@@ -33,6 +37,7 @@ const uint8_t LCD_D7_PIN = 27;
 const uint8_t RGB_RED_PIN = 44;
 const uint8_t RGB_GREEN_PIN = 45;
 const uint8_t RGB_BLUE_PIN = 46;
+const uint8_t BATTERY_PIN = A0;
 const uint8_t LM35_PIN = A1;
 
 // tone() owns the timer behind these two pins, so no PWM output may use them
@@ -87,6 +92,8 @@ unsigned long lastSimUpdate = 0;
 float distanceCm = 0.0f;
 // From tempHistory after each temperature reading; NaN = null (unknown).
 float minsToDanger = NAN;
+// 0-100, or BATTERY_NULL (null) without the divider or without a pack.
+int8_t battery = BATTERY_NULL;
 
 // Off during setup() so the power-up baseline pings don't flash the fault code.
 bool outputsLive = false;
@@ -134,11 +141,20 @@ float readSimulatedF() {
   return simTempF;
 }
 
+float readBatteryAdc() {
+  long total = 0;
+  for (int i = 0; i < 10; i++) {
+    total += analogRead(BATTERY_PIN);
+    waitMs(2);
+  }
+  return total / 10.0f;
+}
+
 float readTempF() { return SIMULATE_TEMP ? readSimulatedF() : readLM35F(); }
 
 void readHumidity() { humidityUpdate(humidity, dht.readHumidity(), millis()); }
 
-// Ultrasonic, temperature, and humidity: once per status period.
+// Ultrasonic, temperature, humidity, and battery: once per status period.
 void readSlowSensors() {
   float pings[SEAT_PINGS_PER_READING];
   for (uint8_t i = 0; i < SEAT_PINGS_PER_READING; i++) pings[i] = pingCm();
@@ -152,6 +168,9 @@ void readSlowSensors() {
   minsToDanger = tempHistoryMinsToDanger(tempHistory, tempF);
 
   readHumidity();
+
+  float batteryAdc = BATTERY_DIVIDER_WIRED ? readBatteryAdc() : 0.0f;
+  battery = batteryStatus(BATTERY_DIVIDER_WIRED, batteryAdc);
 }
 
 void sendStatus() {
@@ -163,6 +182,7 @@ void sendStatus() {
   f.presence = seat.occupied;
   f.distanceCm = distanceCm;
   f.minsToDanger = minsToDanger;
+  f.battery = battery;
   char line[STATUS_LINE_MAX];
   if (statusFormat(line, sizeof line, f) == 0) return;
   Serial.println(line);

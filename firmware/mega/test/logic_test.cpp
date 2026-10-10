@@ -632,6 +632,7 @@ static StatusFields sampleFields() {
   f.presence = true;
   f.distanceCm = 38.0f;
   f.minsToDanger = NAN;
+  f.battery = BATTERY_NULL;
   return f;
 }
 
@@ -740,6 +741,125 @@ static void test_status_line_never_overflows() {
   }
   char exact[STATUS_LINE_MAX];
   CHECK(statusFormat(exact, full + 1, f) == full);
+}
+
+// ---------------------------------------------------------------------------
+// Battery
+// ---------------------------------------------------------------------------
+
+// A0 ADC reading for a pack at `packV`, through the diode and the divider,
+// written with the doc's literals rather than the header's constants.
+static float adcForPack(float packV) { return (packV - 0.7f) / 2.0f / 5.0f * 1023.0f; }
+
+// Pins the doc's empty/full pack voltages and the divider (docs/firmware.md,
+// "Power") with literals.
+static void test_battery_constants_match_doc() {
+  CHECK(BATTERY_EMPTY_V == 7.0f);
+  CHECK(BATTERY_FULL_V == 9.0f);
+  CHECK(BATTERY_DIVIDER_RATIO == 2.0f);  // 10k over 10k
+  CHECK(BATTERY_DIODE_DROP_V == 0.7f);
+  CHECK(BATTERY_NO_PACK_V > 0.0f && BATTERY_NO_PACK_V < 7.0f - 1.0f);
+  CHECK(ADC_REF_V == 5.0f && ADC_MAX == 1023.0f);
+}
+
+static void test_battery_adc_to_pack_volts() {
+  // Full ADC scale: 5 V at A0 = 10 V at VIN = 10.7 V at the pack.
+  CHECK(near(batteryAdcToPackV(1023.0f), 10.7f));
+  // Half scale: 2.5 V at A0 = 5 V at VIN = 5.7 V at the pack.
+  CHECK(near(batteryAdcToPackV(511.5f), 5.7f));
+  CHECK(near(batteryAdcToPackV(adcForPack(7.0f)), 7.0f));
+  CHECK(near(batteryAdcToPackV(adcForPack(9.0f)), 9.0f));
+}
+
+static void test_battery_percent_maps_doc_voltages() {
+  CHECK(batteryPercent(7.0f) == 0);
+  CHECK(batteryPercent(9.0f) == 100);
+  CHECK(batteryPercent(8.0f) == 50);
+  CHECK(batteryPercent(7.5f) == 25);
+  CHECK(batteryPercent(8.76f) == 88);
+  CHECK(batteryFromAdc(adcForPack(7.0f)) == 0);
+  CHECK(batteryFromAdc(adcForPack(8.0f)) == 50);
+  CHECK(batteryFromAdc(adcForPack(9.0f)) == 100);
+}
+
+static void test_battery_percent_clamps() {
+  CHECK(batteryPercent(6.0f) == 0);   // a weak pack, still connected
+  CHECK(batteryPercent(6.99f) == 0);
+  CHECK(batteryPercent(9.01f) == 100);
+  CHECK(batteryPercent(9.6f) == 100);  // fresh alkalines read above 9 V
+  CHECK(batteryPercent(12.0f) == 100);
+  CHECK(batteryPercent(INFINITY) == 100);
+  CHECK(batteryFromAdc(1023.0f) == 100);  // A0 at the rail
+}
+
+static void test_battery_percent_rounds_to_nearest() {
+  CHECK(batteryPercent(7.026f) == 1);  // 1.3 %
+  CHECK(batteryPercent(7.034f) == 2);  // 1.7 %
+  CHECK(batteryPercent(8.986f) == 99);  // 99.3 %
+  CHECK(batteryPercent(8.994f) == 100);  // 99.7 %
+}
+
+// No pack (laptop USB only): A0 near 0, or VIN back-fed a few volts, must be
+// null, never a false "battery empty" 0 %.
+static void test_battery_no_pack_is_null() {
+  CHECK(batteryFromAdc(0.0f) == BATTERY_NULL);
+  CHECK(batteryFromAdc(5.0f) == BATTERY_NULL);
+  CHECK(batteryPercent(0.7f) == BATTERY_NULL);
+  CHECK(batteryPercent(4.0f) == BATTERY_NULL);
+  CHECK(batteryPercent(5.0f) == BATTERY_NULL);  // VIN back-fed to about 4.3 V
+  CHECK(batteryPercent(BATTERY_NO_PACK_V - 0.01f) == BATTERY_NULL);
+  CHECK(batteryPercent(BATTERY_NO_PACK_V) == 0);  // inclusive: a pack, empty
+  CHECK(batteryPercent(NAN) == BATTERY_NULL);
+  CHECK(batteryPercent(-INFINITY) == BATTERY_NULL);
+  CHECK(batteryFromAdc(adcForPack(4.0f)) == BATTERY_NULL);
+}
+
+// BATTERY_DIVIDER_WIRED false: always null, whatever the floating A0 reads.
+static void test_battery_status_null_without_divider() {
+  float adcs[] = {0.0f, adcForPack(8.0f), 1023.0f};
+  for (unsigned i = 0; i < sizeof adcs / sizeof adcs[0]; i++) {
+    CHECK(batteryStatus(false, adcs[i]) == BATTERY_NULL);
+  }
+  CHECK(batteryStatus(true, adcForPack(8.0f)) == 50);
+  CHECK(batteryStatus(true, adcForPack(9.0f)) == 100);
+  CHECK(batteryStatus(true, 0.0f) == BATTERY_NULL);
+}
+
+static void test_status_line_battery_number_or_null() {
+  char buf[STATUS_LINE_MAX];
+  StatusFields f = sampleFields();
+  f.battery = 88;
+  uint16_t n = statusFormat(buf, sizeof buf, f);
+  const char *want =
+      "{\"state\":\"WARNING\",\"tempF\":96.4,\"humidity\":41,\"presence\":true,"
+      "\"distanceCm\":38,\"motion\":null,\"minsToDanger\":null,\"battery\":88}";
+  CHECK(strcmp(buf, want) == 0);
+  CHECK(n == strlen(want));
+  if (strcmp(buf, want) != 0) printf("  got  %s\n  want %s\n", buf, want);
+
+  f.battery = 0;
+  CHECK(statusFormat(buf, sizeof buf, f) > 0);
+  CHECK(strstr(buf, "\"battery\":0}") != NULL);
+  f.battery = 100;
+  CHECK(statusFormat(buf, sizeof buf, f) > 0);
+  CHECK(strstr(buf, "\"battery\":100}") != NULL);
+
+  int8_t nulls[] = {BATTERY_NULL, -128, 101, 127};
+  for (unsigned i = 0; i < sizeof nulls / sizeof nulls[0]; i++) {
+    f.battery = nulls[i];
+    CHECK(statusFormat(buf, sizeof buf, f) > 0);
+    CHECK(strstr(buf, "\"battery\":null}") != NULL);
+  }
+
+  // The longest possible line, with a battery number, still fits.
+  f.level = LEVEL_EMERGENCY;
+  f.tempF = -99999.9f;
+  f.humidity = -99999.0f;
+  f.distanceCm = -99999.0f;
+  f.minsToDanger = 99999.9f;
+  f.battery = 100;
+  n = statusFormat(buf, sizeof buf, f);
+  CHECK(n > 0 && n < STATUS_LINE_MAX);
 }
 
 // ---------------------------------------------------------------------------
@@ -1643,6 +1763,14 @@ int main() {
   test_status_line_number_rounding();
   test_status_line_rejects_non_finite_required_numbers();
   test_status_line_never_overflows();
+  test_battery_constants_match_doc();
+  test_battery_adc_to_pack_volts();
+  test_battery_percent_maps_doc_voltages();
+  test_battery_percent_clamps();
+  test_battery_percent_rounds_to_nearest();
+  test_battery_no_pack_is_null();
+  test_battery_status_null_without_divider();
+  test_status_line_battery_number_or_null();
   test_alarm_constants_match_doc();
   test_level_clock_restarts_on_level_change_only();
   test_led_idle_and_warning_solid();
