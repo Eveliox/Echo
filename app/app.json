@@ -35,7 +35,7 @@
           "image": "./assets/echo-logo.png",
           "imageWidth": 240,
           "resizeMode": "contain",
-          "backgroundColor": "#0E0B0D"
+          "backgroundColor": "#F5E5DB"
         }
       ]
     ]

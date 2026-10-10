@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, Animated, Image, StyleSheet } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { shouldRevealApp } from './launch';
+import { palette, WarmBackground } from './ui';
 
 export function LaunchCover({ fontsReady, emergency, onFinish }) {
   const [opacity] = useState(() => new Animated.Value(1));
@@ -51,10 +52,11 @@ export function LaunchCover({ fontsReady, emergency, onFinish }) {
   }, [reveal, emergency, reduceMotion, opacity, onFinish]);
   if (emergency) return null;
   return <Animated.View onLayout={() => setLaidOut(true)} accessibilityViewIsModal importantForAccessibility="yes" style={[styles.cover, { opacity }]}>
+    <WarmBackground />
     <Image source={require('../assets/echo-logo.png')} accessibilityLabel="Echo" resizeMode="contain" fadeDuration={0} onLoad={() => setImageReady(true)} onError={() => setImageReady(true)} style={styles.logo} />
   </Animated.View>;
 }
 const styles = StyleSheet.create({
-  cover: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: '#0E0B0D', justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+  cover: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: palette.ground, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   logo: { width: 240, height: 80, maxWidth: '80%' },
 });

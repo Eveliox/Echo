@@ -171,7 +171,7 @@ function EchoApp() {
   const emergencyScreen = tab === 'Car' && vm.emergency;
   return <View style={[styles.screen, emergencyScreen && styles.emergency]}>
     {!emergencyScreen && <WarmBackground />}
-    <StatusBar barStyle={!emergencyScreen && !launchVisible ? 'dark-content' : 'light-content'} />
+    <StatusBar barStyle={!emergencyScreen ? 'dark-content' : 'light-content'} />
     <View style={{ flex: 1 }} accessibilityElementsHidden={launchVisible} importantForAccessibility={launchVisible ? 'no-hide-descendants' : 'auto'}>
     {tab !== 'Car' && vm.emergency && <Pressable accessibilityRole="button" onPress={() => setTab('Car')} style={[styles.emergencyBanner, { marginTop: insets.top + 8 }]}>
       <Icon name="alert" color="#FF868D" /><View style={{ flex: 1 }}><Text style={[styles.rowTitle, styles.onRed]}>Emergency at the car</Text><Text style={[styles.small, styles.onRed]}>Go to the car now · View alert</Text></View><Icon name="arrow" color="#FFF5E9" />
