@@ -34,6 +34,8 @@ export function readConfig(env = process.env) {
     },
     contacts: [
       { name: setting(env.CONTACT1_NAME) || 'Contact #1', number: setting(env.CONTACT1_NUMBER) },
+      // Optional: without a number, ladder step 3 is skipped and step 4 leaves it out.
+      { name: setting(env.CONTACT2_NAME) || 'Contact #2', number: setting(env.CONTACT2_NUMBER) },
     ],
   };
 }
@@ -65,6 +67,13 @@ export function callsStartupMessage(config) {
   };
 }
 
+// Startup warnings about optional settings, live only. Names keys, never values.
+export function callsStartupWarnings(config) {
+  if (!config.live || config.contacts[1]?.number) return [];
+  return ['WARNING: ECHO_CALLS=live but server/.env has no CONTACT2_NUMBER: '
+    + 'ladder step 3 will be skipped and step 4 will not call Contact #2.'];
+}
+
 const TWILIO_TIMEOUT_MS = 10_000;
 
 // Returns dial({ to, twiml }) that asks Twilio to place one call.
@@ -89,17 +98,18 @@ export function twilioDialer({ accountSid, authToken, from }, { fetchFn = fetch 
   };
 }
 
-// Returns call({ contact, message, reason }) which never throws or rejects.
+// Returns call({ contact, message, reason, quiet }) which never throws or rejects.
 // It resolves to { ok, dialed, sid? }: `ok` means this step is done.
 // Not live: logs what would be dialed, never touches the network, ok: true.
 // Live: dials through `dial` (default: Twilio from `config`), logging the result.
-// Missing settings or a failed dial resolve ok: false so the ladder retries.
+// Missing settings or a failed dial resolve ok: false so the ladder retries;
+// with `quiet` such a failure is not logged (the ladder already logged one).
 // A timeout can be ok: false even if Twilio did place the call; the retry may
 // then ring twice, which is acceptable (earlier, never later).
 export function createCaller({ config, dial, log = console.log, logError = console.error }) {
   const dialFn = dial ?? twilioDialer(config.twilio);
 
-  return async function call({ contact, message, reason }) {
+  return async function call({ contact, message, reason, quiet = false }) {
     const who = `${contact.name} (${contact.number || 'number not set'})`;
     if (!config.live) {
       log(`calls: [not live, ECHO_CALLS is not "live"] would call ${who} for ${reason}: "${message}"`);
@@ -107,7 +117,7 @@ export function createCaller({ config, dial, log = console.log, logError = conso
     }
     const missing = missingCallSettings({ ...config, contacts: [contact] });
     if (missing.length > 0) {
-      logError(`calls: cannot call ${who} for ${reason}: missing in server/.env: ${missing.join(', ')}`);
+      if (!quiet) logError(`calls: cannot call ${who} for ${reason}: missing in server/.env: ${missing.join(', ')}`);
       return { ok: false, dialed: false };
     }
     try {
@@ -115,7 +125,7 @@ export function createCaller({ config, dial, log = console.log, logError = conso
       log(`calls: called ${who} for ${reason} (Twilio call ${sid})`);
       return { ok: true, dialed: true, sid };
     } catch (err) {
-      logError(`calls: call to ${who} for ${reason} failed: ${err?.message ?? err}`);
+      if (!quiet) logError(`calls: call to ${who} for ${reason} failed: ${err?.message ?? err}`);
       return { ok: false, dialed: false, error: err };
     }
   };

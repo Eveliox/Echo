@@ -4,7 +4,7 @@ import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  callsStartupMessage, createCaller, loadEnv, missingCallSettings, readConfig, sayTwiml, twilioDialer,
+  callsStartupMessage, callsStartupWarnings, createCaller, loadEnv, missingCallSettings, readConfig, sayTwiml, twilioDialer,
 } from '../calls.js';
 
 const fullEnv = {
@@ -207,4 +207,39 @@ test('startup: not live is info and does not require settings', () => {
     assert.match(msg.text, /only logged/);
     assert.doesNotMatch(msg.text, /WILL be dialed/);
   }
+});
+
+test('readConfig takes Contact #2 from the environment; it is optional', () => {
+  const config = readConfig({ ...fullEnv, CONTACT2_NAME: 'Alex', CONTACT2_NUMBER: ' +15550000002 ' });
+  assert.deepEqual(config.contacts[1], { name: 'Alex', number: '+15550000002' });
+  assert.deepEqual(readConfig(fullEnv).contacts[1], { name: 'Contact #2', number: '' });
+  assert.deepEqual(missingCallSettings(readConfig({ ...fullEnv, ECHO_CALLS: 'live' })), [], 'not required');
+});
+
+test('startup: live without CONTACT2_NUMBER warns by name only; otherwise no warning', () => {
+  for (const blank of [undefined, '', '  ']) {
+    const warnings = callsStartupWarnings(readConfig({ ...secretEnv, ECHO_CALLS: 'live', CONTACT2_NUMBER: blank }));
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /CONTACT2_NUMBER/);
+    assert.match(warnings[0], /step 3 will be skipped/);
+    for (const v of secretValues) assert.ok(!warnings[0].includes(v), 'no values in output');
+  }
+  assert.deepEqual(callsStartupWarnings(readConfig({ ...secretEnv, ECHO_CALLS: 'live', CONTACT2_NUMBER: '+15557770003' })), []);
+  assert.deepEqual(callsStartupWarnings(readConfig({ ...secretEnv })), [], 'not live: no warning');
+});
+
+test('quiet: a failed call is not logged, but still fails; quiet never hides a placed or not-live call', async () => {
+  const s = spies();
+  const config = readConfig({ ...fullEnv, ECHO_CALLS: 'live' });
+  const failing = async () => { throw new Error('Twilio answered 500'); };
+  const quietFail = await createCaller({ config, dial: failing, log: s.log, logError: s.logError })({ ...request(config), quiet: true });
+  assert.equal(quietFail.ok, false);
+  const quietMissing = await createCaller({ config: readConfig({ ECHO_CALLS: 'live' }), dial: s.dial, log: s.log, logError: s.logError })({ ...request(config), quiet: true });
+  assert.equal(quietMissing.ok, false);
+  assert.deepEqual(s.errors, []);
+  await createCaller({ config, dial: s.dial, log: s.log, logError: s.logError })({ ...request(config), quiet: true });
+  await createCaller({ config: readConfig(fullEnv), dial: s.dial, log: s.log, logError: s.logError })({ ...request(config), quiet: true });
+  assert.equal(s.logs.length, 2);
+  assert.match(s.logs[0], /called Mom/);
+  assert.match(s.logs[1], /would call Mom/);
 });

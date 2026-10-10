@@ -47,6 +47,7 @@ test('refuses to run when ECHO_CALLS is live in its environment', () => {
 const realLooking = {
   TWILIO_ACCOUNT_SID: 'fake-account-sid', TWILIO_AUTH_TOKEN: 'fake-auth-token',
   TWILIO_FROM_NUMBER: '+15551230000', CONTACT1_NAME: 'Mom', CONTACT1_NUMBER: '+15551230001',
+  CONTACT2_NAME: 'Alex', CONTACT2_NUMBER: '+15551230002',
 };
 
 test('the child server env forces ECHO_CALLS=off and blanks the call settings, whatever the parent has', () => {
@@ -77,10 +78,12 @@ test('blanked settings survive a server/.env with real values, so nothing could 
     assert.equal(config.live, false);
     assert.deepEqual(config.twilio, { accountSid: '', authToken: '', from: '' });
     assert.deepEqual(config.contacts[0], { name: 'Contact #1', number: '' });
+    assert.deepEqual(config.contacts[1], { name: 'Contact #2', number: '' });
     // Even if the live gate were bypassed, a call would be blocked as unconfigured.
     assert.deepEqual(missingCallSettings({ ...config, live: true }),
       ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER', 'CONTACT1_NUMBER']);
     assert.equal(readConfig(childEnv(realLooking, 1)).contacts[0].number, '');
+    assert.equal(readConfig(childEnv(realLooking, 1)).contacts[1].number, '');
   } finally {
     rmSync(dir, { recursive: true });
   }

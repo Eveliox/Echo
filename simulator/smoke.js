@@ -70,6 +70,7 @@ export function refuseReason(env) {
 // the real contact never reaches smoke's output.
 export const BLANKED_CALL_KEYS = [
   'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_FROM_NUMBER', 'CONTACT1_NAME', 'CONTACT1_NUMBER',
+  'CONTACT2_NAME', 'CONTACT2_NUMBER',
 ];
 
 // Where the child server logs statuses when no folder is given: outside the repo.

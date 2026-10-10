@@ -2,6 +2,7 @@
 //   POST /status  the box's status JSON (see docs/firmware.md); keeps the latest
 //   GET  /status  { online, lastSeen, status } for the dashboard and app
 //   GET  /history { entries: [{ receivedAt, status }] }, the last 10 minutes, oldest first
+//   GET  /actions { entries: [{ time, action, to, reason }] }, the ladder's action log, oldest first
 // Each new status also feeds the backup ladder (ladder.js). Calls only dial
 // with ECHO_CALLS=live; Twilio and contacts load from server/.env.
 // ECHO_PORT overrides the port (the smoke check runs its own server on a free one).
@@ -10,8 +11,11 @@
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { createTracker, validateStatus } from './status.js';
-import { callsStartupMessage, createCaller, loadEnv, readConfig } from './calls.js';
+import {
+  callsStartupMessage, callsStartupWarnings, createCaller, loadEnv, readConfig,
+} from './calls.js';
 import { createLadder } from './ladder.js';
+import { createActionLog } from './actions.js';
 import { createHistory, createStatusLog, logDir, logLine } from './history.js';
 
 export const PORT = 3000;
@@ -23,11 +27,16 @@ function send(res, code, body) {
 }
 
 // `statusLog` (createStatusLog) is optional: without one nothing is written to disk.
+// `actions` should be the action log given to attachLadder.
 export function createServer({
-  tracker = createTracker(), history = createHistory(), statusLog = null,
+  tracker = createTracker(), history = createHistory(), statusLog = null, actions = createActionLog(),
 } = {}) {
   return http.createServer((req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname;
+    if (path === '/actions') {
+      if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
+      return send(res, 200, { entries: actions.entries() });
+    }
     if (path === '/history') {
       if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
       return send(res, 200, { entries: history.entries() });
@@ -75,10 +84,15 @@ export function listenPort(env = process.env) {
   return port;
 }
 
-// Feeds every new status from `tracker` into the backup ladder.
-export function attachLadder(tracker, { config, dial, log, logError } = {}) {
+// Feeds every new status from `tracker` into the backup ladder, which records
+// its actions in `actions`. `timers` and `now` are for tests (see createLadder).
+export function attachLadder(tracker, {
+  config, dial, log, logError, actions, timers, now,
+} = {}) {
   const call = createCaller({ config, dial, log, logError });
-  const ladder = createLadder({ contacts: config.contacts, call });
+  const ladder = createLadder({
+    contacts: config.contacts, call, actions, timers, log, logError, now,
+  });
   tracker.onStatus(ladder.onStatus);
   return ladder;
 }
@@ -88,13 +102,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const port = listenPort();
   const config = readConfig();
   const tracker = createTracker();
-  attachLadder(tracker, { config });
+  const actions = createActionLog();
+  attachLadder(tracker, { config, actions });
   const statusLog = createStatusLog({ dir: logDir() });
-  createServer({ tracker, statusLog }).listen(port, () => {
+  createServer({ tracker, statusLog, actions }).listen(port, () => {
     console.log(`Echo server listening on port ${port}`);
     console.log(`Echo server logging statuses to ${statusLog.file}`);
     // Missing settings are loud but don't stop the server: status tracking still matters.
     const calls = callsStartupMessage(config);
     (calls.level === 'error' ? console.error : console.log)(calls.text);
+    for (const warning of callsStartupWarnings(config)) console.error(warning);
   });
 }
