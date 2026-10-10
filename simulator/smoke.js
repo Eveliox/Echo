@@ -5,8 +5,9 @@
 //
 // Safety: it never posts to a server it didn't start. It starts its own
 // `node server/server.js` on a free port with ECHO_CALLS=off forced in that
-// server's environment and its Twilio and contact settings blanked, refuses to
-// run at all if ECHO_CALLS=live is set here,
+// server's environment and its Twilio, contact and Gemini settings blanked
+// (so its Responder is off and never reaches Gemini), refuses to run at all if
+// ECHO_CALLS=live is set here,
 // and always stops the server, also on failure, timeout, or Ctrl-C.
 // The server's status log goes to a temp folder (ECHO_LOG_DIR), never the
 // repo; smoke checks that log replays the recording's lines, then deletes it.
@@ -95,18 +96,31 @@ export const BLANKED_CALL_KEYS = [
   'CONTACT2_NAME', 'CONTACT2_NUMBER',
 ];
 
+// The Responder's key, blanked the same way: with it unset the child server's
+// Responder is off, so smoke never calls Gemini and only the ladder calls.
+export const BLANKED_AGENT_KEYS = ['GEMINI_API_KEY'];
+
+// The server's startup line when the Responder is off (server/gemini.js).
+export const RESPONDER_OFF_LINE = 'responder: off (no GEMINI_API_KEY)';
+
+// Returns the list of reasons the server's output doesn't show the Responder
+// off; empty means pass.
+export function judgeResponder({ output }) {
+  return output.includes(RESPONDER_OFF_LINE) ? [] : [`the server did not print "${RESPONDER_OFF_LINE}"`];
+}
+
 // Where the child server logs statuses when no folder is given: outside the repo.
 export const DEFAULT_SMOKE_LOG_DIR = join(tmpdir(), 'echo-smoke-logs');
 
 // The child server's environment: the parent's, with ECHO_CALLS=off, the call
-// settings blanked, the port set, the status log in `logDir` (a temp folder),
+// and agent settings blanked, the port set, the status log in `logDir` (a temp folder),
 // and ECHO_BOX_TOKEN set to `boxToken`: never the parent's or server/.env's
 // (set, even to '', it wins over server/.env), so smoke knows the token.
 export function childEnv(parentEnv, port, logDir = DEFAULT_SMOKE_LOG_DIR, boxToken = '') {
   const env = {
     ...parentEnv, ECHO_CALLS: 'off', ECHO_PORT: String(port), ECHO_LOG_DIR: logDir, ECHO_BOX_TOKEN: boxToken,
   };
-  for (const key of BLANKED_CALL_KEYS) env[key] = '';
+  for (const key of [...BLANKED_CALL_KEYS, ...BLANKED_AGENT_KEYS]) env[key] = '';
   return env;
 }
 
@@ -244,7 +258,7 @@ async function run(recording) {
   const leaked = server.output.some((line) => line.includes(token)) ? ['the server printed the box token'] : [];
   return [
     ...judge({ output: server.output, snapshot, lastStatus }), ...judgeAuth({ output: server.output }),
-    ...logFailures, ...leaked,
+    ...judgeResponder({ output: server.output }), ...logFailures, ...leaked,
   ];
 }
 
@@ -284,7 +298,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   if (failures.length === 0) {
     console.log('smoke: PASS (one ladder call, logged only; server holds the last status; the log replays; '
-      + 'a post without the box token was refused)');
+      + 'a post without the box token was refused; the Responder was off)');
   } else {
     for (const f of failures) console.error(`smoke: FAIL: ${f}`);
     process.exitCode = 1;

@@ -6,6 +6,8 @@
 //   GET  /        the read-only dashboard page (dashboard.js, files in server/dashboard/)
 // Each new status also feeds the backup ladder (ladder.js). Calls only dial
 // with ECHO_CALLS=live; Twilio and contacts load from server/.env.
+// With GEMINI_API_KEY in server/.env, the Responder (responder.js) also gets
+// each status as its own listener; it can only add calls, messages, and notes.
 // ECHO_PORT overrides the port (the smoke check runs its own server on a free one).
 // Each accepted status is also logged to a file in server/logs/, or ECHO_LOG_DIR.
 // With ECHO_BOX_TOKEN set in server/.env, POST /status needs it in the
@@ -18,6 +20,8 @@ import {
   callsStartupMessage, callsStartupWarnings, createCaller, loadEnv, readConfig,
 } from './calls.js';
 import { createLadder } from './ladder.js';
+import { createResponder } from './responder.js';
+import { geminiModel, readGeminiConfig, responderStartupMessage } from './gemini.js';
 import { createActionLog } from './actions.js';
 import { createHistory, createStatusLog, logDir, logLine } from './history.js';
 import { isDashboardPath, serveDashboard } from './dashboard.js';
@@ -141,6 +145,22 @@ export function attachLadder(tracker, {
   return ladder;
 }
 
+// Feeds every new status from `tracker` into the Responder as its own
+// listener, never through the ladder, so it can't hold up or change a ladder
+// step. Its calls go through the same createCaller and ECHO_CALLS gate.
+// Without a `model` it is off: no listener, returns null.
+export function attachResponder(tracker, {
+  config, model, dial, log, logError, actions, timers, now,
+} = {}) {
+  if (!model) return null;
+  const call = createCaller({ config, dial, log, logError });
+  const responder = createResponder({
+    contacts: config.contacts, call, actions, getStatus: () => tracker.snapshot(), model, timers, now, log, logError,
+  });
+  tracker.onStatus(responder.onStatus);
+  return responder;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   loadEnv();
   const port = listenPort();
@@ -148,6 +168,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const tracker = createTracker();
   const actions = createActionLog();
   attachLadder(tracker, { config, actions });
+  const gemini = readGeminiConfig();
+  attachResponder(tracker, { config, actions, model: gemini.apiKey ? geminiModel(gemini) : null });
   const statusLog = createStatusLog({ dir: logDir() });
   const boxToken = readBoxToken();
   createServer({ tracker, statusLog, actions, boxToken }).listen(port, () => {
@@ -159,5 +181,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     for (const warning of callsStartupWarnings(config)) console.error(warning);
     const auth = boxTokenStartupMessage(boxToken);
     (auth.level === 'warn' ? console.error : console.log)(auth.text);
+    console.log(responderStartupMessage(gemini));
   });
 }

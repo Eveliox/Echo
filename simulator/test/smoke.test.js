@@ -158,3 +158,42 @@ test('judgeAuth passes with the auth-on line and exactly one rejection of one po
   assert.equal(judgeAuth({ output: [authOn, 'rejected 2 status posts: bad or missing token'] }).length, 1, 'wrong count');
   assert.equal(judgeAuth({ output: ['  box token auth: on', rejected] }).length, 1, 'prefix only at line start');
 });
+
+test('the child server env blanks the Responder\'s Gemini key too, whatever the parent has', async () => {
+  const { BLANKED_AGENT_KEYS } = await import('../smoke.js');
+  assert.deepEqual(BLANKED_AGENT_KEYS, ['GEMINI_API_KEY']);
+  for (const key of BLANKED_CALL_KEYS) assert.ok(!BLANKED_AGENT_KEYS.includes(key));
+  const env = childEnv({ ...realLooking, GEMINI_API_KEY: 'fake-gemini-key', GEMINI_MODEL: 'gemini-x' }, 4123);
+  assert.equal(env.GEMINI_API_KEY, '');
+  assert.equal(env.GEMINI_MODEL, 'gemini-x', 'the model name is not a secret');
+  for (const key of BLANKED_CALL_KEYS) assert.equal(env[key], '', key);
+});
+
+test('a server/.env GEMINI_API_KEY does not survive the blank, so the child\'s Responder is off', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'echo-smoke-env-'));
+  const file = join(dir, '.env');
+  writeFileSync(file, 'GEMINI_API_KEY=fake-gemini-key\n');
+  try {
+    const calls = fileURLToPath(new URL('../../server/calls.js', import.meta.url));
+    const gemini = fileURLToPath(new URL('../../server/gemini.js', import.meta.url));
+    const script = `const { loadEnv } = await import(${JSON.stringify(calls)});`
+      + `const { readGeminiConfig, responderStartupMessage } = await import(${JSON.stringify(gemini)});`
+      + `loadEnv(${JSON.stringify(file)}); console.log(responderStartupMessage(readGeminiConfig()));`;
+    const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+      env: childEnv({ GEMINI_API_KEY: 'parent-gemini-key' }, 4123), encoding: 'utf8', timeout: 10_000,
+    });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout.trim(), 'responder: off (no GEMINI_API_KEY)');
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test('judgeResponder passes only when the server printed the Responder-off line', async () => {
+  const { judgeResponder, RESPONDER_OFF_LINE } = await import('../smoke.js');
+  assert.equal(RESPONDER_OFF_LINE, 'responder: off (no GEMINI_API_KEY)');
+  assert.deepEqual(judgeResponder({ output: [...startup, RESPONDER_OFF_LINE, ladder] }), []);
+  assert.equal(judgeResponder({ output: [...startup, ladder] }).length, 1, 'no line');
+  assert.equal(judgeResponder({ output: ['responder: on (Gemini gemini-x; ...)', ladder] }).length, 1, 'on');
+  assert.equal(judgeResponder({ output: [`  ${RESPONDER_OFF_LINE}`] }).length, 1, 'whole line only');
+});
