@@ -42,6 +42,7 @@ test('the real server with no ECHO_BOX_TOKEN prints the loud auth-off WARNING', 
   child = spawn(process.execPath, [SERVER], {
     env: {
       ...process.env, ECHO_CALLS: 'off', ECHO_PORT: String(port), ECHO_LOG_DIR: logDir, ECHO_BOX_TOKEN: '',
+      ECHO_CONTACTS_FILE: join(logDir, 'no-saved-contacts.json'),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

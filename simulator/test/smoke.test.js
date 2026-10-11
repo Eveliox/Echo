@@ -245,3 +245,8 @@ test('judgeVoice passes only with a "voice: off" line and no voice tools listeni
   assert.equal(judgeVoice({ output: [off, tools] }).length, 1, 'tools listening');
   assert.equal(judgeVoice({ output: [`  ${off}`] }).length, 1, 'line start only');
 });
+
+test('the child server never reads contacts saved from the app', () => {
+  const dir = '/tmp/echo-smoke-x';
+  assert.equal(childEnv({ ECHO_CONTACTS_FILE: '/real/server/contacts.json' }, 4123, dir).ECHO_CONTACTS_FILE, join(dir, 'no-saved-contacts.json'));
+});

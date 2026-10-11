@@ -85,7 +85,7 @@ export function contactDraftError(rows) {
   const numbers = new Set();
   for (const [i, row] of rows.entries()) {
     const which = `Contact ${i + 1}`;
-    const name = row.name.trim();
+    const name = row.name.normalize('NFC').trim();
     const number = normalizePhone(row.number);
     if (!CONTACT_NAME.test(name)) return `${which}: add a name (letters, spaces, or . ' -).`;
     if (!number) return `${which}: add a full phone number, like (305) 555-0100.`;

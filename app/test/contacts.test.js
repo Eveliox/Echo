@@ -36,3 +36,6 @@ test('saveContacts shows the server\'s error, or a plain one when unreachable', 
   await assert.rejects(saveContacts('http://h:3000', '1', [], { fetcher: answer(500, null) }), /Could not reach the server\./);
   await assert.rejects(saveContacts('http://h:3000', '1', [], { fetcher: async () => { throw new Error('ECONNREFUSED 10.0.0.1'); } }), /^Error: Could not reach the server\.$/);
 });
+test('an accented name typed in NFD passes', () => {
+  assert.equal(contactDraftError([{ name: 'Jose\u0301', number: '3055550100' }]), null);
+});

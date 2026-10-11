@@ -84,3 +84,16 @@ test('no file, or an unusable one, loads as null so server/.env is used', () => 
   assert.equal(errors.length, 5);
   for (const e of errors) assert.match(e, /using server\/\.env/);
 });
+
+test('accented names are kept in NFC, however they were typed', () => {
+  const typed = 'Jose\u0301'; // NFD "José"
+  assert.deepEqual(validateContacts([{ name: typed, number: mom.number }]).contacts, [{ name: 'Jos\u00e9', number: mom.number }]);
+});
+
+test('a leftover temp file from a crash never lends its permissions', () => {
+  const file = tempFile();
+  writeFileSync(`${file}.tmp`, 'half a list', { mode: 0o644 });
+  saveContacts([mom], file);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  assert.deepEqual(loadSavedContacts(file), [mom]);
+});

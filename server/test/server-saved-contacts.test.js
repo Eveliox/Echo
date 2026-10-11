@@ -3,6 +3,7 @@
 // server's contacts (GET /contacts stays the startup list).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { createServer, MAX_PIN_FAILURES } from '../server.js';
 import { createActionLog } from '../actions.js';
 
@@ -94,4 +95,50 @@ test('only POST', async (t) => {
     assert.equal(res.status, 405, method);
     await res.arrayBuffer();
   }
+});
+
+// Opens one POST and sends only its headers; `finish()` sends the body and
+// resolves to the status code.
+function openPost(base, body) {
+  const text = JSON.stringify(body);
+  const req = http.request(`${base}/saved-contacts`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text) },
+  });
+  const answered = new Promise((resolve, reject) => {
+    req.on('response', (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)); });
+    req.on('error', reject);
+  });
+  req.flushHeaders();
+  return { finish: () => { req.end(text); return answered; } };
+}
+
+test('requests opened before a lockout still get 429 once it starts (no parallel guessing)', async (t) => {
+  const { base, post, saves } = await setup(t);
+  const opened = Array.from({ length: MAX_PIN_FAILURES + 5 }, (_, i) => openPost(base, { pin: `00000${i}`, contacts: list }));
+  await new Promise((resolve) => setTimeout(resolve, 50)); // every request's headers are in
+  const codes = [];
+  for (const o of opened) codes.push(await o.finish());
+  assert.deepEqual(codes.slice(0, MAX_PIN_FAILURES), Array(MAX_PIN_FAILURES).fill(401));
+  assert.deepEqual(codes.slice(MAX_PIN_FAILURES), Array(5).fill(429), 'compared no more PINs after the lockout');
+  assert.equal((await post({ pin: PIN, contacts: list })).status, 429);
+  assert.equal(saves.length, 0);
+});
+
+test('the right PIN resets the count, and wrong PINs more than a minute old expire', async (t) => {
+  const { post, tick } = await setup(t);
+  const wrong = () => post({ pin: '000000', contacts: list });
+  for (let i = 1; i < MAX_PIN_FAILURES; i += 1) assert.equal((await wrong()).status, 401);
+  assert.equal((await post({ pin: PIN, contacts: list })).status, 200);
+  for (let i = 1; i < MAX_PIN_FAILURES; i += 1) assert.equal((await wrong()).status, 401);
+  tick(60_000);
+  assert.equal((await wrong()).status, 401, 'the earlier typos expired, so no lockout');
+  assert.equal((await post({ pin: PIN, contacts: list })).status, 200);
+});
+
+test('a failed save answers 500 and notes nothing', async (t) => {
+  const { post, actions } = await setup(t, {
+    saveContactList: () => { throw new Error('EACCES: permission denied, open contacts.json.tmp'); }, logError: () => {},
+  });
+  assert.equal((await post({ pin: PIN, contacts: list })).status, 500);
+  assert.equal(actions.entries().length, 0);
 });

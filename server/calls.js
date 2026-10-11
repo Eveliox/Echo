@@ -70,8 +70,8 @@ export function callsStartupMessage(config) {
 // Startup warnings about optional settings, live only. Names keys, never values.
 export function callsStartupWarnings(config) {
   if (!config.live || config.contacts[1]?.number) return [];
-  return ['WARNING: ECHO_CALLS=live but server/.env has no CONTACT2_NUMBER: '
-    + 'ladder step 3 will be skipped and step 4 will not call Contact #2.'];
+  return ['WARNING: ECHO_CALLS=live but there is no second contact with a number (CONTACT2_NUMBER in '
+    + 'server/.env, or a second contact saved from the app): ladder step 3 will be skipped and step 4 will not call Contact #2.'];
 }
 
 const TWILIO_TIMEOUT_MS = 10_000;

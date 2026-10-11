@@ -223,7 +223,7 @@ export function createLadder({
         const contact = contactAt(i);
         // Contact #1 always goes to the caller, which reports a missing number.
         if (i > 0 && !contact.number) {
-          const why = `${contact.name} has no number (CONTACT${i + 1}_NUMBER is not set in server/.env)`;
+          const why = `${contact.name} has no number (CONTACT${i + 1}_NUMBER is not set in server/.env, and no contact #${i + 1} was saved from the app)`;
           actions.record({ action: 'skip', to: contact.name, reason: `ladder step ${step}: ${why}` });
           log(`ladder: step ${step} skipped: ${why}`);
           return;

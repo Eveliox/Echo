@@ -87,8 +87,10 @@ export function createServer({
   const publicContacts = contacts.map((contact, index) => ({ order: index + 1, name: contact.name }));
   // Global cooldown needs constant memory and cannot be bypassed with invented client IDs.
   let lastAcknowledged = -Infinity;
-  // Global, like the cooldown above: wrong PINs in a row, and the lockout's end.
+  // Global, like the cooldown above: recent wrong PINs, the last one's time,
+  // and the lockout's end.
   let pinFailures = 0;
+  let lastPinFailure = -Infinity;
   let pinLockedUntil = -Infinity;
   const guard = (res, fn) => {
     try {
@@ -153,7 +155,12 @@ export function createServer({
         } catch {
           return send(res, 400, { error: 'body is not JSON' });
         }
+        // Checked again here: requests opened before a lockout must not
+        // get their PIN compared after it starts.
+        if (now() < pinLockedUntil) return send(res, 429, { error: 'Too many wrong PINs. Wait a minute and try again.' });
         if (!tokenMatches(contactsPin, body?.pin)) {
+          if (now() - lastPinFailure >= PIN_LOCKOUT_MS) pinFailures = 0; // old typos expire
+          lastPinFailure = now();
           pinFailures += 1;
           if (pinFailures >= MAX_PIN_FAILURES) {
             pinFailures = 0;

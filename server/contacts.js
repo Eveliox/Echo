@@ -4,7 +4,7 @@
 // started with, so a save can never change who is called mid-incident.
 // Numbers stay on the server; GET /contacts only ever shows names.
 
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 export const CONTACTS_FILE = fileURLToPath(new URL('./contacts.json', import.meta.url));
@@ -45,7 +45,7 @@ export function validateContacts(list) {
     if (!isObject(entry) || Object.keys(entry).some((k) => k !== 'name' && k !== 'number')) {
       return { error: `${which} isn't a name and a number.` };
     }
-    const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+    const name = typeof entry.name === 'string' ? entry.name.normalize('NFC').trim() : '';
     const number = typeof entry.number === 'string' ? entry.number.trim() : '';
     if (!NAME.test(name)) return { error: `${which}: use a name of up to 40 letters, spaces, or . ' -` };
     if (!NUMBER.test(number)) return { error: `${which}: use a full phone number starting with +, like +13055550100.` };
@@ -86,6 +86,7 @@ export function loadSavedContacts(file = contactsFile(), { logError = console.er
 // a crash mid-write never leaves half a list. Owner-only, it holds numbers.
 export function saveContacts(contacts, file = contactsFile()) {
   const tmp = `${file}.tmp`;
+  rmSync(tmp, { force: true }); // a crash's leftover would keep its old permissions
   writeFileSync(tmp, `${JSON.stringify({ version: 1, contacts }, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, file);
 }

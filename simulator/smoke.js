@@ -135,9 +135,12 @@ export const DEFAULT_SMOKE_LOG_DIR = join(tmpdir(), 'echo-smoke-logs');
 // agent and voice settings blanked, the port set, the status log in `logDir` (a temp folder),
 // and ECHO_BOX_TOKEN set to `boxToken`: never the parent's or server/.env's
 // (set, even to '', it wins over server/.env), so smoke knows the token.
+// ECHO_CONTACTS_FILE points at a file that doesn't exist, so contacts saved
+// from the app (server/contacts.js) never replace the blanked ones.
 export function childEnv(parentEnv, port, logDir = DEFAULT_SMOKE_LOG_DIR, boxToken = '') {
   const env = {
     ...parentEnv, ECHO_CALLS: 'off', ECHO_PORT: String(port), ECHO_LOG_DIR: logDir, ECHO_BOX_TOKEN: boxToken,
+    ECHO_CONTACTS_FILE: join(logDir, 'no-saved-contacts.json'),
   };
   for (const key of [...BLANKED_CALL_KEYS, ...BLANKED_AGENT_KEYS, ...BLANKED_VOICE_KEYS]) env[key] = '';
   return env;

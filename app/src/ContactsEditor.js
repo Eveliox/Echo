@@ -19,7 +19,7 @@ export function ContactsEditor({ names, onDone }) {
     setSending(true);
     setProblem('');
     try {
-      const contacts = rows.map(row => ({ name: row.name.trim(), number: normalizePhone(row.number) }));
+      const contacts = rows.map(row => ({ name: row.name.normalize('NFC').trim(), number: normalizePhone(row.number) }));
       const result = await saveContacts(config.serverUrl, pin.trim(), contacts);
       onDone(`Saved ${result.saved} contact${result.saved === 1 ? '' : 's'}. Echo starts calling them after the Echo server restarts.`);
     } catch (err) { setProblem(err.message); }

@@ -50,6 +50,7 @@ async function start(extra, until) {
       ...process.env, ECHO_CALLS: 'off', ECHO_PORT: String(port), ECHO_VOICE_PORT: String(voicePort), ECHO_LOG_DIR: logDir,
       ECHO_BOX_TOKEN: '', TWILIO_ACCOUNT_SID: '', TWILIO_AUTH_TOKEN: '', TWILIO_FROM_NUMBER: '',
       CONTACT1_NAME: '', CONTACT1_NUMBER: '', CONTACT2_NAME: '', CONTACT2_NUMBER: '',
+      ECHO_CONTACTS_FILE: join(logDir, 'no-saved-contacts.json'),
       GEMINI_API_KEY: '', ELEVENLABS_API_KEY: '', ELEVENLABS_AGENT_ID: '', ELEVENLABS_PHONE_NUMBER_ID: '', ECHO_VOICE_SECRET: '',
       ...extra,
     },
