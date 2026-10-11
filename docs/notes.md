@@ -319,3 +319,9 @@ Decision (David, with Eve's agreement): the DHT11 is physically removed and the 
 - Compatibility: the server accepts statuses with or without humidity (any value ignored), so a box still on old firmware stays online and the ladder is unaffected. Pinned by unit and HTTP tests.
 - Re-flash the Mega to stop sending humidity (the port can change: check `arduino-cli board list`; it was /dev/cu.usbmodem14101 today). Until then, the voice agent's get_car_status still sees the old humidity value. Re-import notebooks/heat_test.py into Databricks.
 - For Eve: app/test/model.test.js "preserves zero and decimals" lost its only decimal case (humidity 41.25), so add a decimal battery value; the Insights row now has a single full-width card; brief.md still lists "sunlight" as a model input while `light` is pending.
+
+## 2026-10-11 (Eve, cinematic dashboard design)
+
+- Restyled the local browser dashboard from the supplied warm, translucent mobile reference: charcoal shell, amber-lit SVG cabin seat, cream typography, prominent Doto danger timer, responsive two-column layout, and action timeline. Uses existing local fonts and logo; no dependencies or remote assets. Mobile app unchanged.
+- Slow decorative lighting and entry motion respect reduced motion; emergency disables entry animation and brings the timer before the artwork. Existing stale readings and lost-alarm banner remain; data/polling/call behavior unchanged.
+- Checks: all 263 server tests passed. Installed Playwright checked 1440/768/390/320 widths, no horizontal overflow, emergency and lost-emergency states, reduced motion, and browser errors with intercepted synthetic preview data only. Screenshots in /tmp/echo-dashboard-{desktop,mobile,emergency}.png.
