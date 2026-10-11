@@ -40,7 +40,7 @@ test('the committed app/assets/insights.json validates and its label matches its
   assert.equal(validInsights(committed), true);
   const view = insightsView(committed);
   assert.equal(view.ok, true);
-  assert.equal(view.label, committed.real === false ? NOT_REAL_LABEL : null);
+  assert.equal(view.label, committed.real === false && committed.source !== 'databricks forecast' ? NOT_REAL_LABEL : null);
   // The design example and a forecast carry a note (forecasts: "never leave a child"); heat-test results don't.
   assert.equal(view.note !== null, ['design example', 'databricks forecast'].includes(committed.source));
 });
@@ -119,7 +119,7 @@ test('a Florida forecast export reads as a parked-car forecast for its place, la
   assert.equal(view.minutes, '7');
   assert.equal(view.minutesLabel, 'Forecast time to 104°F in a parked car');
   assert.equal(view.sentence, 'On a 91°F afternoon in Orlando, FL, a parked car hits danger in 7 minutes.');
-  assert.equal(view.label, NOT_REAL_LABEL);
+  assert.equal(view.label, null); // forecasts carry no "not from a real heat test" label
   assert.match(view.note, /never changes an alert/);
   assert.deepEqual(view.moments.map(m => [m.minute, m.temperature, m.label]), [['0', 91, 'Car parked'], ['3.4', 98, 'Heat building'], ['6.8', 104, 'Danger threshold']]);
   assert.equal(view.timeline, 'after parking');

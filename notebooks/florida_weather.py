@@ -27,7 +27,9 @@
 # MAGIC 2. Store the key in a Databricks secret scope, never in this notebook or in git:
 # MAGIC    `databricks secrets create-scope echo` then `databricks secrets put-secret echo google_weather_api_key`.
 # MAGIC 3. Set the widgets below, Run all once, then **Schedule** the notebook hourly.
-# MAGIC 4. Copy the printed `insights.json` into the repo's `app/assets/insights.json` (the app never calls Databricks).
+# MAGIC 4. The Echo server downloads `export_path` from the Volume (with `DATABRICKS_HOST`/`DATABRICKS_TOKEN` in
+# MAGIC    `server/.env`) and serves it to the app at `GET /insights`; the app never calls Databricks. Copying the
+# MAGIC    printed JSON into `app/assets/insights.json` only updates the bundled offline fallback.
 # MAGIC
 # MAGIC Cost: two requests per city per run (six cities hourly is about 8,600 requests a month). Check the
 # MAGIC Weather API pricing page against your free monthly allowance before adding cities or running more often.
@@ -191,8 +193,12 @@ def time_of_day_word(hour):
     return "night"
 
 
-def forecast_insights(risk_rows, generated_at):
+def forecast_insights(risk_rows, generated_at, city=""):
     """Builds the app's insights.json from the worst forecast hour (fewest minutes to danger).
+
+    With `city` set (e.g. "Orlando"), only that city's hours count; if it has none that reach
+    danger, the statewide worst is used instead so the app never goes blank. Empty `city`
+    means the statewide worst.
 
     Same shape as notebooks/heat_test.py's export, with `source` "databricks forecast" and a
     `place`. `real` is False: this is a forecast, not a real heat test.
@@ -200,6 +206,12 @@ def forecast_insights(risk_rows, generated_at):
     scored = [r for r in risk_rows if r["minutes_to_danger"] is not None and r.get("local_hour") is not None]
     if not scored:
         raise ValueError("no daytime forecast hour reaches danger within an hour, nothing to export")
+    if city:
+        in_city = [r for r in scored if r["city"].lower() == city.lower()]
+        if in_city:
+            scored = in_city
+        else:
+            print("No %s hour reaches danger in this forecast; using the statewide worst instead." % city)
     worst = min(scored, key=lambda r: (r["minutes_to_danger"], -r["temp_f"], r["hour_start_utc"]))
     outside = worst["temp_f"]
     minutes = minutes_to_danger(outside)  # Unrounded, so the curve's last point lands on DANGER_TEMP_F.
@@ -228,6 +240,8 @@ dbutils.widgets.text("risk_table", "workspace.default.florida_heat_risk_forecast
 dbutils.widgets.text("export_path", "/Volumes/workspace/default/echo_logs/florida_insights.json", "Where to write insights.json (empty: print only)")
 dbutils.widgets.text("secret_scope", "echo", "Secret scope holding the API key")
 dbutils.widgets.text("secret_key", "google_weather_api_key", "Secret name of the API key")
+dbutils.widgets.text("app_city", "Orlando", "City for the app's forecast (empty: worst in Florida)")
+APP_CITY = dbutils.widgets.get("app_city").strip()
 WEATHER_TABLE = dbutils.widgets.get("weather_table").strip()
 RISK_TABLE = dbutils.widgets.get("risk_table").strip()
 EXPORT_PATH = dbutils.widgets.get("export_path").strip()
@@ -363,12 +377,13 @@ display(spark.sql(f"""
 
 # MAGIC %md
 # MAGIC ## Export for the app
-# MAGIC The worst forecast hour in Florida, in the shape `app/src/insights.js` validates. Copy the printed JSON into
-# MAGIC `app/assets/insights.json`.
+# MAGIC The worst forecast hour in Florida, in the shape `app/src/insights.js` validates. The Echo server serves
+# MAGIC `export_path` to the app (`GET /insights`); copy the printed JSON into `app/assets/insights.json` only to
+# MAGIC update the bundled offline fallback.
 
 # COMMAND ----------
 
-insights = forecast_insights(risk_rows, fetched_at)
+insights = forecast_insights(risk_rows, fetched_at, APP_CITY)
 text = json.dumps(insights, indent=2)
 print(text)
 if EXPORT_PATH:

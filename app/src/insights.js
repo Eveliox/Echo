@@ -83,7 +83,7 @@ export function insightsView(data) {
     minutes: String(minutes),
     minutesLabel: `Forecast time to ${DANGER_F}°F in a parked car`,
     sentence: `On a ${temp}°F ${timeOfDay} in ${data.place}, a parked car hits danger in ${plural(minutes, 'minute')}.`,
-    label: NOT_REAL_LABEL,
+    label: null, // A forecast is real weather data; the FORECAST badge and subtitle already say what it is.
     note: "Never leave a child in the car, even for a minute. Echo's box watches the seat itself; this forecast never changes an alert.",
     moments,
     ticks: points.map(point => arcPoint(point.minute / end).x),
