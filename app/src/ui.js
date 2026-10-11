@@ -93,7 +93,7 @@ export function Navigation({ tab, onChange, bottom, light = true }) {
       return <Pressable key={name} accessibilityRole="tab" accessibilityState={{ selected }} onPress={() => onChange(name)} style={({ pressed }) => [s.tab, pressed && { opacity: 0.7 }]}>
         {selected && light && <AccentRule />}
         <Icon name={{ Car: 'car', Feed: 'activity', Contacts: 'contacts', Insights: 'heat' }[name]} color={light ? selected ? logo.magenta : '#715037' : selected ? '#FFF5E9' : '#EFC4BD'} size={21} />
-        <Text style={[s.tabLabel, selected && { color: palette.text }, { color: light ? selected ? logo.magenta : '#715037' : selected ? '#FFF5E9' : '#EFC4BD' }]}>{name}</Text>
+        <Text style={[s.tabLabel, selected && { color: palette.text }, { color: light ? selected ? logo.magenta : '#715037' : selected ? '#FFF5E9' : '#EFC4BD' }]}>{ { Car: 'Home', Feed: 'Activity', Contacts: 'Contacts', Insights: 'Insights' }[name] }</Text>
       </Pressable>;
     })}
   </View></View>;
@@ -108,5 +108,5 @@ const s = StyleSheet.create({
   secondary: { backgroundColor: '#FFF3CD26', borderWidth: 1, borderColor: '#35231555' }, disabled: { opacity: 0.65 }, buttonText: { fontFamily: 'Outfit', fontSize: 17, color: '#FFF5E9', flexShrink: 1 },
   notice: { borderColor: palette.line, borderTopWidth: 1, paddingVertical: 18, flexDirection: 'row', gap: 12 }, noticeIcon: { paddingTop: 1 }, noticeTitle: { fontFamily: 'Outfit', color: palette.text, fontSize: 14 }, noticeText: { fontFamily: 'Manrope', fontSize: 12, lineHeight: 19, color: palette.muted },
   navOuter: { backgroundColor: palette.ground, paddingHorizontal: 20, paddingTop: 10 }, nav: { flexDirection: 'row', borderTopWidth: 1, borderColor: palette.line, paddingTop: 8, gap: 4 },
-  tab: { flex: 1, minHeight: 52, justifyContent: 'center', alignItems: 'center', gap: 5 }, tabLabel: { fontFamily: 'Outfit', color: palette.muted, fontSize: 11 },
+  tab: { flex: 1, minHeight: 52, justifyContent: 'center', alignItems: 'center', gap: 5 }, tabLabel: { fontFamily: 'Outfit', color: palette.muted, fontSize: 13 },
 });

@@ -1,0 +1,11 @@
+import { Buffer } from 'node:buffer';
+import { build } from 'esbuild';
+import { readFile, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+const root = new URL('../', import.meta.url);
+const result = await build({ entryPoints: [fileURLToPath(new URL('src/car/viewer.js', root))], bundle: true, minify: true, format: 'iife', target: 'safari16.4', write: false, legalComments: 'inline' });
+const model = (await readFile(new URL('assets/models/sedan.json.gz', root))).toString('base64');
+const script = result.outputFiles[0].text.replaceAll('</script', '<\\/script');
+const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}canvas{display:block;pointer-events:none}</style></head><body><script id="sedan-data" type="application/octet-stream">${model}</script><script>${script}</script></body></html>`;
+await writeFile(new URL('assets/models/viewer.json', root), JSON.stringify({ html }));
+console.log(`Offline car viewer: ${(Buffer.byteLength(html)/1024/1024).toFixed(2)} MB`);

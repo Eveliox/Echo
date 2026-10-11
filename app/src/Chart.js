@@ -38,7 +38,7 @@ export function Chart({ entries, status, online }) {
     </Svg>
    </View>
   </View>
-  <View style={s.row}><Text style={s.small}>{samples.length?`${DANGER_F} °F danger`:'Your history will build here.'}</Text><Text style={s.small}>{curve.forecast?`Box forecast ${curve.forecast.label}`:''}</Text></View>
+  <View style={s.row}><Text style={s.small}>{samples.length?`${DANGER_F} °F danger`:'Your history will build here.'}</Text><Text style={s.small}>{curve.forecast?`Device estimate ${curve.forecast.label}`:''}</Text></View>
  </View>;
 }
-const s=StyleSheet.create({card:{backgroundColor:'#F8EAD5',borderRadius:20,padding:16,gap:12},row:{flexDirection:'row',justifyContent:'space-between',gap:8},title:{fontFamily:'Outfit',fontSize:17,color:palette.text},small:{fontFamily:'Manrope',fontSize:10,color:palette.muted},tooltip:{fontFamily:'Manrope',fontSize:12,color:palette.text,minHeight:20},plot:{flexDirection:'row',gap:5},axis:{width:39,height:128,justifyContent:'space-between',paddingVertical:3},graph:{flex:1,height:128}});
+const s=StyleSheet.create({card:{backgroundColor:'#F8EAD5',borderRadius:20,padding:16,gap:12},row:{flexDirection:'row',justifyContent:'space-between',gap:8},title:{fontFamily:'Outfit',fontSize:17,color:palette.text},small:{fontFamily:'Manrope',fontSize:12,color:palette.muted},tooltip:{fontFamily:'Manrope',fontSize:14,color:palette.text,minHeight:20},plot:{flexDirection:'row',gap:5},axis:{width:39,height:128,justifyContent:'space-between',paddingVertical:3},graph:{flex:1,height:128}});
