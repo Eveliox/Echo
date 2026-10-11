@@ -19,7 +19,7 @@ function HeatArc({ moments, ticks, selected, timeline }) {
       <Path d="M35 142 C94 9 246 9 305 142" stroke={ink} strokeWidth="2" fill="none" />
       <Line x1={point.x} x2={point.x} y1={point.y} y2="142" stroke={ink} strokeOpacity="0.24" />
       {ticks.map((x, index) => <Circle key={index} cx={x} cy="142" r="3" fill={ink} />)}
-      <Circle cx={point.x} cy={point.y} r="24" fill="#FFD16C" />
+      <Circle cx={point.x} cy={point.y} r="24" fill="#FF9A4A" />
       <Circle cx={point.x} cy={point.y} r="6" fill={ink} />
       {Array.from({ length: 12 }, (_, index) => {
         const angle = index * Math.PI / 6;

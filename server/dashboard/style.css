@@ -14,7 +14,7 @@
   --palette-text: #352315;
   --palette-muted: #715037;
   --palette-line: #35231520;
-  --palette-brand: #873F25;
+  --palette-brand: #E0306A;
   /* app/src/model.js COLORS (halo) and the Car screen's status label colors (app/App.js) */
   --colors-calm: #5B9CFF;
   --colors-caution: #FFB547;
@@ -27,10 +27,11 @@
   --emergency-card: #510B1728;
   --emergency-card-line: #FFFFFF20;
   --emergency-chart: #F6F1F2;
-  /* app/src/ui.js WarmBackground: heatEmber over heatSun over heatSky, same boxes on a 390x850 view */
-  --heat-ember: radial-gradient(ellipse 51.3% 35.3% at 55.1% 83.5%, #FF642CD9 0%, #FF642C00 100%);
-  --heat-sun: radial-gradient(ellipse 85.9% 28.2% at 50% 52.9%, #FFEE81 0%, #FFE678CC 48%, #FFE67800 100%);
-  --heat-sky: linear-gradient(to bottom, #F5E5DB 0%, #FFC6A6 30%, #FFDD75 57%, #FF8C43 100%);
+  /* app/src/ui.js WarmBackground (the logo's colors): heatEmber over heatSun over heatSky
+     over the ground, same boxes on a 390x850 view; alpha = the app's stopOpacity */
+  --heat-ember: radial-gradient(ellipse 51.3% 35.3% at 55.1% 83.5%, #E0306A73 0%, #E0306A00 100%);
+  --heat-sun: radial-gradient(ellipse 85.9% 28.2% at 50% 52.9%, #FF9A4A80 0%, #FF9A4A00 100%);
+  --heat-sky: linear-gradient(to bottom, #F5E5DB 0%, #FF9A4A59 45%, #FF615073 78%, #F2334F8C 100%);
 }
 
 * { box-sizing: border-box; }

@@ -2,15 +2,21 @@ import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Defs, Line, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 
-export const palette = { ground: '#F5E5DB', surface: '#FFF3CD30', raised: '#FFF3CD55', text: '#352315', muted: '#715037', line: '#35231520', brand: '#873F25' };
+// The Echo logo's gradient, top to bottom. Brand only: alert levels keep
+// their own colors (model.js COLORS, the red Car screen) so EMERGENCY still
+// stands out from every calm screen.
+export const logo = { orange: '#FF9A4A', coral: '#FF6150', pink: '#F2334F', magenta: '#E0306A' };
+export const palette = { ground: '#F5E5DB', surface: '#FFF3CD30', raised: '#FFF3CD55', text: '#352315', muted: '#715037', line: '#35231520', brand: '#E0306A' };
+// The logo's colors as soft washes over the ground, so dark text stays readable.
 export function WarmBackground() {
   return <View pointerEvents="none" style={StyleSheet.absoluteFill} accessible={false}>
     <Svg width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 390 850">
       <Defs>
-        <LinearGradient id="heatSky" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#F5E5DB" /><Stop offset="0.3" stopColor="#FFC6A6" /><Stop offset="0.57" stopColor="#FFDD75" /><Stop offset="1" stopColor="#FF8C43" /></LinearGradient>
-        <RadialGradient id="heatSun"><Stop offset="0" stopColor="#FFEE81" stopOpacity="1" /><Stop offset="0.48" stopColor="#FFE678" stopOpacity="0.8" /><Stop offset="1" stopColor="#FFE678" stopOpacity="0" /></RadialGradient>
-        <RadialGradient id="heatEmber"><Stop offset="0" stopColor="#FF642C" stopOpacity="0.85" /><Stop offset="1" stopColor="#FF642C" stopOpacity="0" /></RadialGradient>
+        <LinearGradient id="heatSky" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#F5E5DB" /><Stop offset="0.45" stopColor="#FF9A4A" stopOpacity="0.35" /><Stop offset="0.78" stopColor="#FF6150" stopOpacity="0.45" /><Stop offset="1" stopColor="#F2334F" stopOpacity="0.55" /></LinearGradient>
+        <RadialGradient id="heatSun"><Stop offset="0" stopColor="#FF9A4A" stopOpacity="0.5" /><Stop offset="1" stopColor="#FF9A4A" stopOpacity="0" /></RadialGradient>
+        <RadialGradient id="heatEmber"><Stop offset="0" stopColor="#E0306A" stopOpacity="0.45" /><Stop offset="1" stopColor="#E0306A" stopOpacity="0" /></RadialGradient>
       </Defs>
+      <Rect width="390" height="850" fill={palette.ground} />
       <Rect width="390" height="850" fill="url(#heatSky)" />
       <Rect x="-140" y="210" width="670" height="480" fill="url(#heatSun)" />
       <Rect x="15" y="410" width="400" height="600" fill="url(#heatEmber)" />
@@ -73,7 +79,7 @@ export function Halo({ color }) {
 }
 export function ActionButton({ children, onPress, secondary = false, disabled = false, icon = 'arrow', emergency = false }) {
   return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [s.button, secondary && s.secondary, emergency && { backgroundColor: secondary ? '#FFFFFF0C' : '#FFF5E9', borderColor: '#FFFFFF88' }, disabled && s.disabled, pressed && { transform: [{ scale: 0.985 }], opacity: 0.85 }]}>
-    <Icon name={icon} size={20} color={emergency ? secondary ? '#FFF5E9' : '#6A1720' : secondary ? palette.text : palette.ground} /><Text style={[s.buttonText, secondary && { color: palette.text }, emergency && { color: secondary ? '#FFF5E9' : '#6A1720' }]}>{children}</Text>
+    <Icon name={icon} size={20} color={emergency ? secondary ? '#FFF5E9' : '#6A1720' : secondary ? palette.text : '#FFF5E9'} /><Text style={[s.buttonText, secondary && { color: palette.text }, emergency && { color: secondary ? '#FFF5E9' : '#6A1720' }]}>{children}</Text>
   </Pressable>;
 }
 export function Notice({ title, children, icon = 'shield', urgent = false }) {
@@ -85,20 +91,20 @@ export function Navigation({ tab, onChange, bottom, light = true }) {
     {['Car', 'Feed', 'Contacts', 'Insights'].map(name => {
       const selected = tab === name;
       return <Pressable key={name} accessibilityRole="tab" accessibilityState={{ selected }} onPress={() => onChange(name)} style={({ pressed }) => [s.tab, pressed && { opacity: 0.7 }]}>
-        <Icon name={{ Car: 'car', Feed: 'activity', Contacts: 'contacts', Insights: 'heat' }[name]} color={light ? selected ? '#352315' : '#715037' : selected ? '#FFF5E9' : '#EFC4BD'} size={21} />
-        <Text style={[s.tabLabel, selected && { color: palette.text }, { color: light ? selected ? '#352315' : '#715037' : selected ? '#FFF5E9' : '#EFC4BD' }]}>{name}</Text>
+        <Icon name={{ Car: 'car', Feed: 'activity', Contacts: 'contacts', Insights: 'heat' }[name]} color={light ? selected ? logo.magenta : '#715037' : selected ? '#FFF5E9' : '#EFC4BD'} size={21} />
+        <Text style={[s.tabLabel, selected && { color: palette.text }, { color: light ? selected ? logo.magenta : '#715037' : selected ? '#FFF5E9' : '#EFC4BD' }]}>{name}</Text>
       </Pressable>;
     })}
   </View></View>;
 }
 export function AccentRule() {
-  return <Svg width="44" height="3"><Defs><LinearGradient id="brandRule"><Stop offset="0" stopColor="#FF9A3C" /><Stop offset="1" stopColor="#E32B6E" /></LinearGradient></Defs><Rect width="44" height="3" rx="1.5" fill="url(#brandRule)" /></Svg>;
+  return <Svg width="44" height="3"><Defs><LinearGradient id="brandRule"><Stop offset="0" stopColor={logo.orange} /><Stop offset="0.4" stopColor={logo.coral} /><Stop offset="0.75" stopColor={logo.pink} /><Stop offset="1" stopColor={logo.magenta} /></LinearGradient></Defs><Rect width="44" height="3" rx="1.5" fill="url(#brandRule)" /></Svg>;
 }
 const s = StyleSheet.create({
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 8 }, logo: { width: 92, height: 34 },
   statusLabel: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 7, alignSelf: 'center' }, dot: { width: 5, height: 5, borderRadius: 3 }, statusText: { fontFamily: 'Outfit', fontSize: 10, letterSpacing: 1.2 },
-  button: { minHeight: 58, borderRadius: 18, padding: 16, backgroundColor: palette.text, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 },
-  secondary: { backgroundColor: '#FFF3CD26', borderWidth: 1, borderColor: '#35231555' }, disabled: { opacity: 0.65 }, buttonText: { fontFamily: 'Outfit', fontSize: 17, color: palette.ground, flexShrink: 1 },
+  button: { minHeight: 58, borderRadius: 18, padding: 16, backgroundColor: logo.magenta, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 },
+  secondary: { backgroundColor: '#FFF3CD26', borderWidth: 1, borderColor: '#35231555' }, disabled: { opacity: 0.65 }, buttonText: { fontFamily: 'Outfit', fontSize: 17, color: '#FFF5E9', flexShrink: 1 },
   notice: { borderColor: palette.line, borderTopWidth: 1, paddingVertical: 18, flexDirection: 'row', gap: 12 }, noticeIcon: { paddingTop: 1 }, noticeTitle: { fontFamily: 'Outfit', color: palette.text, fontSize: 14 }, noticeText: { fontFamily: 'Manrope', fontSize: 12, lineHeight: 19, color: palette.muted },
   navOuter: { backgroundColor: palette.ground, paddingHorizontal: 20, paddingTop: 10 }, nav: { flexDirection: 'row', borderTopWidth: 1, borderColor: palette.line, paddingTop: 8, gap: 4 },
   tab: { flex: 1, minHeight: 52, justifyContent: 'center', alignItems: 'center', gap: 5 }, tabLabel: { fontFamily: 'Outfit', color: palette.muted, fontSize: 11 },
