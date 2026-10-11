@@ -37,8 +37,9 @@ after(async () => {
 });
 
 // Starts the server with `fileText` as its saved contacts and resolves
-// { port, output } once it has printed its contacts line.
-async function start(fileText) {
+// { port, output } once every pattern in `until` has appeared (stdout and
+// stderr arrive separately, so each line is waited for, not just the first).
+async function start(fileText, until) {
   const port = await freePort();
   const dir = mkdtempSync(join(tmpdir(), 'echo-startup-contacts-'));
   dirs.push(dir);
@@ -56,10 +57,10 @@ async function start(fileText) {
   children.push(child);
   let output = '';
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`no contacts line within ${START_TIMEOUT_MS} ms:\n${output}`)), START_TIMEOUT_MS);
+    const timer = setTimeout(() => reject(new Error(`startup lines missing after ${START_TIMEOUT_MS} ms:\n${output}`)), START_TIMEOUT_MS);
     const check = (chunk) => {
       output += chunk;
-      if (/^contacts: (\d+ saved from the app|from server\/\.env)/m.test(output)) {
+      if (until.every((pattern) => pattern.test(output))) {
         clearTimeout(timer);
         resolve();
       }
@@ -76,7 +77,7 @@ async function start(fileText) {
 
 test('a saved list replaces the .env contacts, and no number is printed or served', { timeout: START_TIMEOUT_MS + 2000 }, async () => {
   const saved = { version: 1, contacts: [{ name: 'Grandma', number: '+13055550100' }, { name: 'Alex', number: '+13055550101' }] };
-  const { port, output } = await start(JSON.stringify(saved));
+  const { port, output } = await start(JSON.stringify(saved), [/^contacts: 2 saved from the app/m, /saving from the app is off/]);
   assert.match(output, /^contacts: 2 saved from the app/m);
   assert.match(output, /saving from the app is off/);
   const res = await fetch(`http://127.0.0.1:${port}/contacts`);
@@ -88,7 +89,8 @@ test('a saved list replaces the .env contacts, and no number is printed or serve
 });
 
 test('an unusable saved file falls back to the .env contacts without stopping the server', { timeout: START_TIMEOUT_MS + 2000 }, async () => {
-  const { port, output } = await start('{"version":1,"contacts":[{"name":"Grandma","number":"555"}]}');
+  const { port, output } = await start('{"version":1,"contacts":[{"name":"Grandma","number":"555"}]}',
+    [/is unusable .*; using server\/\.env/, /^contacts: from server\/\.env/m, /saving from the app is off/]);
   assert.match(output, /is unusable .*; using server\/\.env/);
   assert.match(output, /^contacts: from server\/\.env/m);
   assert.deepEqual(await (await fetch(`http://127.0.0.1:${port}/contacts`)).json(), [{ order: 1, name: 'EnvMom' }, { order: 2, name: 'Contact #2' }]);
