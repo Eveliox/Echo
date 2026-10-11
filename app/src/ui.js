@@ -79,8 +79,9 @@ export function ActionButton({ children, onPress, secondary = false, disabled = 
     <Icon name={icon} size={20} color={emergency ? secondary ? '#FFF5E9' : '#6A1720' : secondary ? palette.text : palette.ground} /><Text style={[s.buttonText, secondary && { color: palette.text }, emergency && { color: secondary ? '#FFF5E9' : '#6A1720' }]}>{children}</Text>
   </Pressable>;
 }
-export function Notice({ title, children, icon = 'shield' }) {
-  return <View style={s.notice}><View style={s.noticeIcon}><Icon name={icon} size={20} color={palette.muted} /></View><View style={{ flex: 1, gap: 5 }}>{title && <Text style={s.noticeTitle}>{title}</Text>}<Text style={s.noticeText}>{children}</Text></View></View>;
+export function Notice({ title, children, icon = 'shield', urgent = false }) {
+  const color = urgent ? '#B62432' : palette.muted;
+  return <View style={[s.notice, urgent && { borderColor: color, borderTopWidth: 2 }]}><View style={s.noticeIcon}><Icon name={icon} size={20} color={color} /></View><View style={{ flex: 1, gap: 5 }}>{title && <Text style={[s.noticeTitle, urgent && { color }]}>{title}</Text>}<Text style={[s.noticeText, urgent && { color: palette.text }]}>{children}</Text></View></View>;
 }
 export function Navigation({ tab, onChange, bottom, light = true }) {
   return <View style={[s.navOuter, { paddingBottom: Math.max(bottom, 12) }, { backgroundColor: light ? 'transparent' : '#7E1822' }]}><View accessibilityRole="tablist" style={[s.nav, { borderColor: light ? '#35231525' : '#FFFFFF30' }]}>

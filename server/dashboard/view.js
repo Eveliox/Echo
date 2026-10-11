@@ -18,16 +18,30 @@ export function levelStyle(state) {
   return Object.hasOwn(LEVELS, state) ? { ...LEVELS[state] } : { color: 'none', blink: false };
 }
 
-// The page's look, matching the app's Car screen (app/App.js): EMERGENCY with
-// the box online turns the whole page deep red; the box offline, the server
-// unreachable, or no level yet is muted; every other level is the warm style
-// with its own accent. style.css has one .theme-<token> rule per token.
+// The page's look, matching the app's Car screen (app/App.js): EMERGENCY
+// turns the whole page deep red; every other level is the warm style with its
+// own accent; no level yet is muted. style.css has one .theme-<token> rule per
+// token.
 const THEMES = {
   IDLE: 'calm', ARMED: 'calm', OCCUPANT: 'caution', WARNING: 'caution', EMERGENCY: 'emergency',
 };
 
+// Losing the box (or the server) at WARNING or EMERGENCY keeps the alarm look:
+// silence from the car is not good news, and nothing over Wi-Fi may lower an
+// alarm. Lower levels go muted while the box is offline.
+const KEEP_WHEN_LOST = ['WARNING', 'EMERGENCY'];
+
 export function pageTheme(state, online) {
-  return online === true && Object.hasOwn(THEMES, state) ? THEMES[state] : 'muted';
+  if (!Object.hasOwn(THEMES, state)) return 'muted';
+  return online === true || KEEP_WHEN_LOST.includes(state) ? THEMES[state] : 'muted';
+}
+
+// The banner shown while the box is out of contact at WARNING or EMERGENCY;
+// '' when there is nothing to warn about.
+export function lostAlarmText(level, online, lastSeen) {
+  if (online === true || !KEEP_WHEN_LOST.includes(level)) return '';
+  const since = lastSeen === MISSING ? 'No updates' : `No updates since ${lastSeen}`;
+  return `${since} · last alert ${level}. The box alarms on its own without Wi-Fi. Go to the car now.`;
 }
 
 const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -63,6 +77,7 @@ export function statusView(snapshot, reachable = true) {
   else if (snapshot?.online === true) connection = 'online';
   else connection = 'offline';
   const online = reachable && snapshot?.online === true;
+  const lastSeen = isNumber(snapshot?.lastSeen) ? clockTime(snapshot.lastSeen) : MISSING;
   return {
     level: state,
     ...levelStyle(state),
@@ -73,14 +88,21 @@ export function statusView(snapshot, reachable = true) {
     distanceCm: formatValue(status?.distanceCm),
     connection,
     online,
-    lastSeen: isNumber(snapshot?.lastSeen) ? clockTime(snapshot.lastSeen) : MISSING,
+    lastSeen,
+    lostAlarm: lostAlarmText(state, online, lastSeen),
   };
 }
+
+// Danger threshold: docs/firmware.md, "Firmware behavior". Only used to draw
+// the danger line; levels and minutes to danger come from the box.
+export const DANGER_F = 104;
 
 // The heat curve from GET /history entries: SVG polyline points in a
 // `width` x `height` box, plus the lowest and highest tempF as sent and the
 // time span. Entries without a numeric tempF or receivedAt are skipped.
-export function heatCurve(entries, { width = 300, height = 120 } = {}) {
+// With `dangerF`, the scale also takes in that temperature (2 °F of margin
+// each side) and `dangerY` is where its line goes.
+export function heatCurve(entries, { width = 300, height = 120, dangerF } = {}) {
   const samples = (Array.isArray(entries) ? entries : [])
     .filter((e) => isNumber(e?.receivedAt) && isNumber(e?.status?.tempF))
     .map((e) => ({ t: e.receivedAt, f: e.status.tempF }))
@@ -93,7 +115,10 @@ export function heatCurve(entries, { width = 300, height = 120 } = {}) {
   const t0 = samples[0].t;
   const t1 = samples[samples.length - 1].t;
   const x = (t) => (t1 === t0 ? width : ((t - t0) / (t1 - t0)) * width);
-  const y = (f) => (maxF === minF ? height / 2 : height - ((f - minF) / (maxF - minF)) * height);
+  const danger = isNumber(dangerF);
+  const lo = danger ? Math.min(minF, dangerF) - 2 : minF;
+  const hi = danger ? Math.max(maxF, dangerF) + 2 : maxF;
+  const y = (f) => (hi === lo ? height / 2 : height - ((f - lo) / (hi - lo)) * height);
   const coord = (n) => String(Math.round(n * 10) / 10);
   return {
     points: samples.map((s) => `${coord(x(s.t))},${coord(y(s.f))}`).join(' '),
@@ -101,6 +126,7 @@ export function heatCurve(entries, { width = 300, height = 120 } = {}) {
     maxF: String(maxF),
     start: clockTime(t0),
     end: clockTime(t1),
+    ...(danger ? { dangerY: coord(y(dangerF)) } : {}),
   };
 }
 

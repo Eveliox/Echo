@@ -14,19 +14,21 @@
     <p id="connection" class="connection offline">connecting…</p>
   </header>
 
+  <p id="lost-alarm" class="lost-alarm" role="alert" hidden></p>
+
   <section id="level" class="level level-none" aria-live="polite">
     <span class="label"><span class="dot"></span>Alert level</span>
     <span id="level-text" class="big">--</span>
   </section>
 
   <section class="readings">
+    <div class="reading reading-danger">
+      <span class="label">Minutes to danger</span>
+      <span id="minsToDanger" class="big">--</span>
+    </div>
     <div class="reading">
       <span class="label">Cabin °F</span>
       <span id="tempF" class="big">--</span>
-    </div>
-    <div class="reading">
-      <span class="label">Minutes to danger</span>
-      <span id="minsToDanger" class="big">--</span>
     </div>
     <div class="reading">
       <span class="label">Seat occupied</span>
@@ -41,9 +43,10 @@
   <section class="curve">
     <h2>Heat curve</h2>
     <svg id="curve" viewBox="0 0 300 120" preserveAspectRatio="none" role="img" aria-label="Cabin temperature over time">
+      <line id="curve-danger" x1="0" x2="300" y1="0" y2="0" visibility="hidden"></line>
       <polyline id="curve-line" points=""></polyline>
     </svg>
-    <p class="axis"><span id="curve-range">--</span> <span id="curve-span">--</span></p>
+    <p class="axis"><span id="curve-range">--</span> <span id="curve-danger-label"></span> <span id="curve-span">--</span></p>
   </section>
 
   <section class="feed">

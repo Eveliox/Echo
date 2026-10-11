@@ -294,3 +294,13 @@ Also: the dashboard now shows "Seat distance cm" (the box's distanceCm as sent),
 - After each heat run: stop the server, then `node simulator/databricks_upload.js --dir ~/Desktop/echo-logs --latest --as real-<date>-<desc>.jsonl --run`. Delete the sim file from echo_logs before the first real run.
 - The notebook's widget defaults now point at David's Volume and America/New_York (a job run ignores interactive widget values). Re-import notebooks/heat_test.py into Databricks, or set task parameters on the job.
 - App: deps installed from the lockfile (`npm ci` in app/); app/.env (git-ignored) is copied from env.example (server URL http://172.20.10.2:3000). Expo needs the same Expo account signed in on the laptop (`npx expo login`, run inside app/) and in Expo Go. David's account was made with Google, so set a password at expo.dev for the CLI.
+
+## 2026-10-11 (Eve, dashboard and app: lost alarm stays an alarm)
+
+Decision (Eve, PM): when the box goes offline, or the dashboard loses the server, and the last level was WARNING or EMERGENCY, both screens keep the alarm look. This reverses #25's "a last-known EMERGENCY shows muted" (David asked for a conscious team OK; this is it). Reason: losing contact mid-emergency is worse news, not better, and in the demo the screens were going calm right as the ESP8266 is pulled.
+- Dashboard: the theme stays caution/emergency, and a banner reads "No updates since HH:MM:SS · last alert X. The box alarms on its own without Wi-Fi. Go to the car now." Below WARNING it still goes muted. dashboard-theme.test.js's offline assertions were rewritten for the new rule on purpose.
+- Dashboard readability: minutes to danger is the biggest reading, on its own row; the heat curve has a dashed danger line (heatCurve takes an optional dangerF); the newest action is larger.
+- App: offline at WARNING/EMERGENCY shows an urgent notice and Call 911 (the demo dialer when EXPO_PUBLIC_ECHO_DEMO_CALLS=true). The offline "Call Mom" button and EXPO_PUBLIC_ECHO_MOM_NUMBER are gone; the parent holds the app. A local app/.env can drop that line.
+- Demo script doc (Claude Docs, "Echo: Devpost & Demo Script"): the ESP-pull beat now names the red dashboard banner and the app's Call 911; the close says Heat insights is a design example unless real heat runs land.
+
+For David: please look at the dashboard and the app's Car tab with the ESP pulled during the next replay or heat run.

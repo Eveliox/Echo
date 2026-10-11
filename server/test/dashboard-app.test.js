@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { POLL_MS, POLLED_PATHS, startDashboard } from '../dashboard/app.js';
-import { clockTime, feedRows, heatCurve, statusView } from '../dashboard/view.js';
+import { DANGER_F, clockTime, feedRows, heatCurve, statusView } from '../dashboard/view.js';
 
 const html = readFileSync(new URL('../dashboard/index.html', import.meta.url), 'utf8');
 const IDS = [...html.matchAll(/\bid="([^"]+)"/g)].map((m) => m[1]);
@@ -157,9 +157,15 @@ test('renders each value into its own element, matching the view helpers', { tim
   assert.ok(!level.classList.contains('blink'), 'WARNING is solid');
   assert.ok(doc.byId.get('connection').classList.contains('online'));
 
-  const curve = heatCurve(sample['/history'].entries);
+  const curve = heatCurve(sample['/history'].entries, { dangerF: DANGER_F });
   assert.equal(doc.byId.get('curve-line').attrs.points, curve.points);
   assert.equal(text(doc, 'curve-range'), '94.1–96.4 °F');
+  const danger = doc.byId.get('curve-danger').attrs;
+  assert.equal(danger.y1, curve.dangerY);
+  assert.equal(danger.y2, curve.dangerY);
+  assert.equal(danger.visibility, 'visible');
+  assert.equal(text(doc, 'curve-danger-label'), `dashed: ${DANGER_F} °F danger`);
+  assert.equal(doc.byId.get('lost-alarm').hidden, true, 'no banner while online');
 
   const rows = feedRows(sample['/actions'].entries);
   const feed = doc.byId.get('feed').children;
@@ -192,6 +198,36 @@ test('null minsToDanger shows "--"; EMERGENCY is red and blinking; offline shows
   await startDashboard({ document: offlineDoc, fetch: instantFetch(offline).fetch, setTimeout: () => {} });
   assert.equal(text(offlineDoc, 'connection'), `offline, last seen ${clockTime(t2)}`);
   assert.ok(!offlineDoc.byId.get('level').classList.contains('blink'), 'stale data does not blink');
+  assert.equal(offlineDoc.byId.get('page').className, 'theme-emergency', 'a lost EMERGENCY stays red');
+  const lost = offlineDoc.byId.get('lost-alarm');
+  assert.equal(lost.hidden, false);
+  assert.match(lost.textContent, new RegExp(`since ${clockTime(t2)} · last alert EMERGENCY`));
+  assert.match(lost.textContent, /Go to the car now\.$/);
+});
+
+test('the lost-alarm banner shows when the server becomes unreachable at WARNING, and hides below it', { timeout: 5000 }, async () => {
+  const doc = fakeDocument();
+  const bodies = { ...sample };
+  const { timers, setTimeout } = fakeTimers();
+  await startDashboard({ document: doc, fetch: instantFetch(bodies).fetch, setTimeout });
+  assert.equal(doc.byId.get('lost-alarm').hidden, true);
+  bodies['/status'] = new Error('network down');
+  await timers[0].fn();
+  assert.equal(doc.byId.get('lost-alarm').hidden, false, 'last known WARNING');
+  assert.equal(doc.byId.get('page').className, 'theme-caution');
+
+  const calm = fakeDocument();
+  const occupant = { ...sample, '/status': { online: false, lastSeen: t2, status: status({ state: 'OCCUPANT' }) } };
+  await startDashboard({ document: calm, fetch: instantFetch(occupant).fetch, setTimeout: () => {} });
+  assert.equal(calm.byId.get('lost-alarm').hidden, true);
+  assert.equal(calm.byId.get('page').className, 'theme-muted');
+});
+
+test('the danger line stays hidden with no readings', { timeout: 5000 }, async () => {
+  const doc = fakeDocument();
+  await startDashboard({ document: doc, fetch: instantFetch({ ...sample, '/history': { entries: [] } }).fetch, setTimeout: () => {} });
+  assert.equal(doc.byId.get('curve-danger').attrs.visibility, 'hidden');
+  assert.equal(text(doc, 'curve-danger-label'), '');
 });
 
 test('a failed fetch or a non-2xx answer shows "server unreachable" and keeps polling', { timeout: 5000 }, async () => {

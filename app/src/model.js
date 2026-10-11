@@ -2,15 +2,25 @@
 export const DANGER_F = 104;
 export const OFFLINE_MS = 10_000;
 export const COLORS = { IDLE: '#5B9CFF', ARMED: '#5B9CFF', OCCUPANT: '#FFB547', WARNING: '#FFB547', EMERGENCY: '#E5202E', OFFLINE: '#6E6468' };
+// Losing the box at these levels is still an alarm: silence from the car is not good news.
+const KEEP_WHEN_LOST = ['WARNING', 'EMERGENCY'];
 export function viewModel(snapshot, connected, now = Date.now(), receivedAt = null) {
   const status = snapshot?.status ?? null;
   const age = Number.isFinite(snapshot?.lastSeen) ? Math.max(0, Math.floor((now - snapshot.lastSeen) / 1000)) : null;
   const online = Boolean(connected && snapshot?.online && status && receivedAt !== null && now - receivedAt < OFFLINE_MS);
   return { status, online, emergency: online && status.state === 'EMERGENCY', color: COLORS[online ? status.state : 'OFFLINE'],
+    lostAlarm: !online && KEEP_WHEN_LOST.includes(status?.state),
     heard: age === null ? 'Waiting for the box' : `${online ? 'Updated' : 'Last heard'} ${age} s ago`,
     temperature: status ? `${status.tempF}°` : '—',
     minutes: status?.minsToDanger == null ? '—' : String(status.minsToDanger),
     rising: online && status.minsToDanger !== null && status.minsToDanger > 0 };
+}
+// The Car screen's notice while the box is out of contact at WARNING or EMERGENCY.
+export function lostAlarmCopy(status, lastHeard) {
+  return {
+    title: `${lastHeard ? `No updates since ${lastHeard}` : 'No updates'} · last alert ${status.state}`,
+    body: 'The box alarms on its own without Wi-Fi. Go to the car now.',
+  };
 }
 export function emergencyCopy(status) {
   return status?.presence ? 'An occupied seat. Dangerous heat. Go to the car now.' : 'Dangerous heat. Go to the car now.';

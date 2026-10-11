@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { viewModel as makeView, sensorReadings, emergencyCopy, heatCurve, DANGER_F, emergencyPhone, phoneUrl, serverUrl } from '../src/model.js';
+import { viewModel as makeView, sensorReadings, emergencyCopy, lostAlarmCopy, heatCurve, DANGER_F, emergencyPhone, phoneUrl, serverUrl } from '../src/model.js';
 import { poll, request } from '../src/client.js';
 const viewModel = (snapshot, connected, now) => makeView(snapshot, connected, now, 1000);
 const status = { state: 'EMERGENCY', tempF: 101.23, presence: true, battery: null, minsToDanger: 3.75 };
@@ -85,4 +85,19 @@ test('sensor row preserves zero and decimals and distinguishes unknown motion fr
   ]);
   assert.deepEqual(sensorReadings({ presence: false, motion: false, humidity: 0, battery: null }).map(r => r.value), ['No', 'None', '0%', '—']);
   assert.equal(sensorReadings({ motion: true })[1].value, 'Seen');
+});
+test('losing the box at WARNING or EMERGENCY stays an alarm; lower levels do not', () => {
+  for (const state of ['WARNING', 'EMERGENCY']) {
+    const s2 = { ...status, state };
+    for (const vm of [viewModel({ ...snapshot, status: s2 }, false, 2000), viewModel({ ...snapshot, status: s2 }, true, 11000), viewModel({ ...snapshot, online: false, status: s2 }, true, 2000)]) {
+      assert.equal(vm.lostAlarm, true, state); assert.equal(vm.online, false); assert.equal(vm.emergency, false);
+    }
+    assert.equal(viewModel({ ...snapshot, status: s2 }, true, 2000).lostAlarm, false, 'online');
+  }
+  for (const state of ['IDLE', 'ARMED', 'OCCUPANT']) assert.equal(viewModel({ ...snapshot, status: { ...status, state } }, false, 2000).lostAlarm, false, state);
+  assert.equal(viewModel(null, false, 2000).lostAlarm, false, 'no reading yet');
+});
+test('lost-alarm copy names the last alert and when the box was last heard', () => {
+  assert.deepEqual(lostAlarmCopy({ state: 'EMERGENCY' }, '10:42:03 AM'), { title: 'No updates since 10:42:03 AM · last alert EMERGENCY', body: 'The box alarms on its own without Wi-Fi. Go to the car now.' });
+  assert.equal(lostAlarmCopy({ state: 'WARNING' }, null).title, 'No updates · last alert WARNING');
 });

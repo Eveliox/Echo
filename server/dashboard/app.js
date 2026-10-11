@@ -4,7 +4,7 @@
 // startDashboard takes document, fetch, and setTimeout so tests can run it
 // without a browser; the page starts it with the real ones (bottom of file).
 
-import { feedRows, heatCurve, statusView } from './view.js';
+import { DANGER_F, feedRows, heatCurve, statusView } from './view.js';
 
 export const POLL_MS = 2000;
 export const POLLED_PATHS = ['/status', '/history', '/actions'];
@@ -26,6 +26,11 @@ export function startDashboard({ document, fetch, setTimeout }) {
       ? `offline, last seen ${view.lastSeen}` : view.connection;
     conn.className = `connection ${view.connection === 'server unreachable' ? 'unreachable' : view.connection}`;
 
+    // Only rewritten when it changes, so a screen reader announces it once.
+    const lost = $('lost-alarm');
+    if (lost.textContent !== view.lostAlarm) lost.textContent = view.lostAlarm;
+    lost.hidden = view.lostAlarm === '';
+
     const level = $('level');
     level.className = `level level-${view.color}`;
     level.classList.toggle('blink', view.blink && view.online);
@@ -41,6 +46,14 @@ export function startDashboard({ document, fetch, setTimeout }) {
     $('curve-line').setAttribute('points', curve.points);
     $('curve-range').textContent = curve.minF === '--' ? 'no readings yet' : `${curve.minF}–${curve.maxF} °F`;
     $('curve-span').textContent = curve.start === '--' ? '' : `${curve.start} → ${curve.end}`;
+    const danger = $('curve-danger');
+    const shown = curve.dangerY !== undefined;
+    if (shown) {
+      danger.setAttribute('y1', curve.dangerY);
+      danger.setAttribute('y2', curve.dangerY);
+    }
+    danger.setAttribute('visibility', shown ? 'visible' : 'hidden');
+    $('curve-danger-label').textContent = shown ? `dashed: ${DANGER_F} °F danger` : '';
   }
 
   function renderFeed(rows) {
@@ -71,7 +84,7 @@ export function startDashboard({ document, fetch, setTimeout }) {
       const [snapshot, history, actions] = results.map((r) => r.value);
       lastSnapshot = snapshot;
       renderStatus(statusView(snapshot, true));
-      renderCurve(heatCurve(history?.entries));
+      renderCurve(heatCurve(history?.entries, { dangerF: DANGER_F }));
       renderFeed(feedRows(actions?.entries));
     } catch {
       renderStatus(statusView(lastSnapshot, false));

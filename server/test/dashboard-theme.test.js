@@ -31,10 +31,16 @@ test('each level maps to its theme while the box is online', () => {
   assert.equal(pageTheme('EMERGENCY', true), 'emergency');
 });
 
-test('offline, unreachable, or no level is muted, even for a last-known EMERGENCY', () => {
-  for (const state of ['IDLE', 'ARMED', 'OCCUPANT', 'WARNING', 'EMERGENCY']) {
+// Changed on purpose (Eve, 2026-10-11): a last-known WARNING or EMERGENCY
+// keeps its alarm look when the box or server goes quiet; see docs/notes.md.
+test('offline or unreachable is muted below WARNING; WARNING and EMERGENCY keep their look', () => {
+  for (const state of ['IDLE', 'ARMED', 'OCCUPANT']) {
     assert.equal(pageTheme(state, false), 'muted', state);
     assert.equal(pageTheme(state, undefined), 'muted', state);
+  }
+  for (const online of [false, undefined]) {
+    assert.equal(pageTheme('WARNING', online), 'caution');
+    assert.equal(pageTheme('EMERGENCY', online), 'emergency');
   }
   for (const v of ['--', 'PANIC', '', null, undefined, 'toString', '__proto__']) {
     assert.equal(pageTheme(v, true), 'muted', String(v));
@@ -45,8 +51,10 @@ test('statusView carries the theme from the level and the connection', () => {
   const snap = (state, online = true) => ({ online, lastSeen: 1, status: { state, tempF: 104.5, minsToDanger: 0, presence: true } });
   assert.equal(statusView(snap('EMERGENCY')).theme, 'emergency');
   assert.equal(statusView(snap('WARNING')).theme, 'caution');
-  assert.equal(statusView(snap('EMERGENCY', false)).theme, 'muted');
-  assert.equal(statusView(snap('EMERGENCY'), false).theme, 'muted', 'server unreachable');
+  assert.equal(statusView(snap('EMERGENCY', false)).theme, 'emergency', 'box offline');
+  assert.equal(statusView(snap('EMERGENCY'), false).theme, 'emergency', 'server unreachable');
+  assert.equal(statusView(snap('WARNING', false)).theme, 'caution', 'box offline');
+  assert.equal(statusView(snap('OCCUPANT', false)).theme, 'muted', 'box offline');
   assert.equal(statusView(null, true).theme, 'muted');
   // Values still show exactly as sent at EMERGENCY.
   assert.equal(statusView(snap('EMERGENCY')).tempF, '104.5');

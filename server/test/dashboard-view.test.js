@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  clockTime, feedRows, formatValue, heatCurve, levelStyle, seatText, statusView, MISSING,
+  clockTime, feedRows, formatValue, heatCurve, levelStyle, lostAlarmText, seatText, statusView, MISSING,
 } from '../dashboard/view.js';
 
 const status = (overrides = {}) => ({
@@ -123,6 +123,32 @@ test('heatCurve labels are temperatures the box sent, and bad entries are skippe
   assert.equal(curve.points, '0,50 100,0');
   assert.equal(curve.minF, '80.4');
   assert.equal(curve.maxF, '104.5');
+});
+
+test('heatCurve with dangerF scales to include it and places its line', () => {
+  const entries = [
+    { receivedAt: 0, status: status({ tempF: 80 }) },
+    { receivedAt: 1000, status: status({ tempF: 90 }) },
+    { receivedAt: 2000, status: status({ tempF: 100 }) },
+  ];
+  // Scale 78..106 °F over 120 px.
+  const curve = heatCurve(entries, { width: 300, height: 120, dangerF: 104 });
+  assert.equal(curve.points, '0,111.4 150,68.6 300,25.7');
+  assert.equal(curve.dangerY, '8.6');
+  assert.equal(curve.minF, '80', 'labels stay the temperatures sent');
+  assert.equal(curve.maxF, '100');
+  // Above the threshold, the line sits below the hottest point.
+  const hot = heatCurve([{ receivedAt: 0, status: status({ tempF: 110 }) }], { width: 300, height: 120, dangerF: 104 });
+  assert.ok(Number(hot.dangerY) > Number(hot.points.split(',')[1]));
+  assert.equal(heatCurve(entries).dangerY, undefined, 'no dangerF, no line');
+});
+
+test('lostAlarmText warns only when out of contact at WARNING or EMERGENCY', () => {
+  assert.equal(lostAlarmText('EMERGENCY', false, '10:42:03'),
+    'No updates since 10:42:03 · last alert EMERGENCY. The box alarms on its own without Wi-Fi. Go to the car now.');
+  assert.match(lostAlarmText('WARNING', false, MISSING), /^No updates · last alert WARNING\./);
+  for (const level of ['IDLE', 'ARMED', 'OCCUPANT', MISSING]) assert.equal(lostAlarmText(level, false, '10:42:03'), '', level);
+  assert.equal(lostAlarmText('EMERGENCY', true, '10:42:03'), '', 'online');
 });
 
 test('heatCurve with one reading or none', () => {

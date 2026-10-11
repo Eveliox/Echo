@@ -10,7 +10,7 @@ import { CountdownRing, HeatTrace } from './src/HeatMotion';
 import { config } from './config';
 import { poll, readResource, request } from './src/client';
 import { activityRows, activityTime } from './src/activity';
-import { DANGER_F, emergencyPhone, heatCurve, phoneUrl, sensorReadings, viewModel } from './src/model';
+import { DANGER_F, emergencyPhone, heatCurve, lostAlarmCopy, sensorReadings, viewModel } from './src/model';
 import { AccentRule, ActionButton, Brand, Halo, Icon, Navigation, Notice, palette, StatusLabel, WarmBackground } from './src/ui';
 
 // Hand off the native loader only after the in-app logo has loaded and laid out.
@@ -211,9 +211,11 @@ function EchoApp() {
               <Icon name={['seat', 'motion', 'humidity', 'battery'][index]} size={18} color={palette.muted} /><Text style={styles.sensorValue}>{reading.value}</Text><Text style={styles.sensorLabel}>{reading.label}</Text>
             </View>)}</View>
             <Notice title="Stay close" icon="shield">If you left the car, go back now. The box sounds its own alarm if the cabin gets hot.</Notice>
+          </> : vm.lostAlarm ? <>
+            <Notice urgent title={lostAlarmCopy(status, lastHeard).title} icon="alert">{lostAlarmCopy(status, lastHeard).body}</Notice>
+            <ActionButton icon="phone" onPress={() => dial(() => emergencyPhone(config))}>{config.demoCalls ? 'Open demo dialer' : 'Call 911'}</ActionButton>
           </> : <>
             <Notice title="Connection lost. Check the car." icon="offline">The box may have lost Wi-Fi. Its own alarm still works at the car.</Notice>
-            <ActionButton icon="phone" onPress={() => dial(() => phoneUrl(config.momNumber))}>Call Mom</ActionButton>
           </>}
           {!!ackNote && <Text accessibilityRole="alert" style={[styles.body, emergencyScreen && styles.onRed]}>{ackNote}</Text>}
         </View>}
