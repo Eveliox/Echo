@@ -3,36 +3,64 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#201c19">
+<meta name="theme-color" content="#F5E5DB">
 <meta name="description" content="Echo — cabin conditions, heat trends, and response activity at a glance.">
 <title>Echo · Your car, in view</title>
 <link rel="stylesheet" href="/dashboard/style.css">
 <script type="module" src="/dashboard/app.js"></script>
+<script type="module" src="/dashboard/cabin.js"></script>
 </head>
-<body id="page" class="theme-muted">
-<main>
-  <header>
-    <div class="brand"><h1 class="logo">Echo</h1><span class="brand-caption">A little closer. Even from here.</span></div>
-    <p id="connection" class="connection offline">connecting…</p>
-  </header>
-  <div class="page-heading"><div><p class="eyebrow">YOUR CAR, IN VIEW</p><h2>Stay connected.<br><span>Stay close.</span></h2></div><div class="vehicle-label"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 10 2-5h10l2 5M4 10h16v8H4zM7 18v2m10-2v2M7 13h1m8 0h1"/></svg><span>Family car<small>Cabin monitor / 01</small></span></div></div>
-  <p id="lost-alarm" class="lost-alarm" role="alert" hidden></p>
-  <div class="dashboard-grid">
-    <section class="cabin-panel" aria-label="Cabin overview">
-      <div class="cabin-light" aria-hidden="true"></div>
-      <div class="cabin-top"><span class="eyebrow">ECHO / CABIN</span><span class="panel-index">01</span></div>
-      <div id="level" class="level level-none" aria-live="polite"><span class="label"><span class="dot"></span>Alert level</span><span id="level-text" class="big">--</span></div>
-      <div class="cabin-art" aria-hidden="true"><svg viewBox="0 0 500 350"><defs><linearGradient id="seat-surface" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#9c6c4e"/><stop offset=".38" stop-color="#35251e"/><stop offset="1" stop-color="#140f0d"/></linearGradient><linearGradient id="seat-edge"><stop stop-color="#fbc48d"/><stop offset=".55" stop-color="#c88352"/><stop offset="1" stop-color="#67432e"/></linearGradient></defs><path d="M206 54q3-20 22-20h61q18 0 15 22l-5 36-99 4z" fill="url(#seat-surface)" stroke="url(#seat-edge)" stroke-width="2"/><path d="m197 98 105-3q27 2 24 37l-13 111-159 5 16-114q4-31 27-36z" fill="url(#seat-surface)" stroke="url(#seat-edge)" stroke-width="2"/><path d="m164 232 143-3 65 49q18 18-8 27l-146 15q-19 1-32-14l-42-46q-13-16 20-28z" fill="url(#seat-surface)" stroke="url(#seat-edge)" stroke-width="2"/><path d="m200 123 87-3-12 103-91 6m-14 22 135-5 42 39-129 13z" fill="none" stroke="#b28b6d" stroke-opacity=".3"/><path d="m178 307-6 20m161-20 8 16" fill="none" stroke="#271b16" stroke-width="12"/></svg></div>
-      <div class="cabin-bottom"><span class="label">Cabin temperature <span>°F</span></span><div class="temperature"><span id="tempF" class="big">--</span><span class="temperature-unit">°</span></div><p class="stale-caption">Last received reading · check the car</p></div>
-    </section>
-    <div class="monitor-column">
-      <section class="reading reading-danger"><div class="section-top"><h3>Time to danger</h3><span class="small-tag">BOX ESTIMATE</span></div><div class="timer"><span id="minsToDanger" class="big">--</span><span class="timer-unit">min</span></div><p class="timer-note">Reported by your cabin sensor.<br>A missing estimate does not mean the car is safe.</p><p class="emergency-instruction">Go to the car now.</p><div class="timer-track" aria-hidden="true"></div></section>
-      <section class="readings" aria-label="Seat sensors"><div class="reading"><span class="label">Seat occupied</span><span id="seat" class="big">--</span><span class="reading-note">Presence sensor</span></div><div class="reading"><span class="label">Seat distance <span>cm</span></span><span id="distanceCm" class="big">--</span><span class="reading-note">Ultrasonic reading</span></div></section>
+<body id="page" class="theme-muted" data-cabin-mode="waiting">
+<main id="overview">
+  <aside class="sidebar" aria-label="Dashboard navigation">
+    <div class="sidebar-top">
+      <h1 class="logo">Echo</h1>
+      <div class="welcome"><h2>Your car.</h2><a class="notification" href="#activity" aria-label="View response activity"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 0 1 12 0v6l2 3H4l2-3zM10 21h4"/></svg></a></div>
+      <p class="greeting">Always within reach.<br><strong>Family car</strong></p>
     </div>
-    <section class="curve"><div class="section-top"><div><p class="eyebrow">THE BIGGER PICTURE</p><h3>Cabin heat</h3></div><span class="chart-key"><i></i>Temperature</span></div><div class="chart-wrap"><svg id="curve" viewBox="0 0 300 120" preserveAspectRatio="none" role="img" aria-label="Recorded cabin temperature over time"><line id="curve-danger" x1="0" x2="300" y1="0" y2="0" visibility="hidden"></line><polyline id="curve-line" points=""></polyline></svg></div><p class="axis"><span id="curve-range">No readings yet</span><span id="curve-danger-label"></span><span id="curve-span"></span></p></section>
-    <section class="feed"><div class="section-top"><div><p class="eyebrow">EVERY ACTION, ACCOUNTED FOR</p><h3>Response activity</h3></div><span class="feed-mark" aria-hidden="true">↗</span></div><div id="feed-empty"><span class="empty-orbit" aria-hidden="true">·</span><p>No actions yet.</p><small>Calls and response notes will appear here.</small></div><ol id="feed"></ol></section>
+    <nav class="section-menu" aria-label="Dashboard sections">
+      <a class="nav-sensors" href="#sensors"><span>Seat sensors</span><small>02 readings</small></a>
+      <a class="nav-cabin" href="#cabin"><span>Overview</span><small><i></i>Cabin monitor</small></a>
+      <a class="nav-heat" href="#heat"><span>Cabin heat</span><small>01 temperature trend</small></a>
+      <a class="nav-activity" href="#activity"><span>Activity</span><small>Calls &amp; response notes</small></a>
+    </nav>
+    <p class="sidebar-caption">A little closer.<br>Even from here.</p>
+  </aside>
+  <div class="workspace">
+    <header class="workspace-header"><span class="eyebrow">FAMILY CAR / CABIN MONITOR</span><p id="connection" class="connection offline">connecting…</p></header>
+    <p id="lost-alarm" class="lost-alarm" role="alert" hidden></p>
+    <div class="dashboard-grid">
+      <section id="activity" class="feed tile" tabindex="-1" aria-labelledby="activity-title">
+        <div class="section-top"><h3 id="activity-title">Response activity</h3><span class="small-tag">LATEST</span></div>
+        <div id="feed-empty"><span class="empty-orbit" aria-hidden="true">·</span><p id="feed-empty-title">Waiting for activity</p><small id="feed-empty-detail">Connecting to your response history…</small></div><ol id="feed"></ol>
+      </section>
+      <section id="cabin" class="cabin-panel tile" tabindex="-1" aria-label="Cabin overview">
+        <div class="cabin-light" aria-hidden="true"></div>
+        <div class="cabin-top"><h3>Cabin temperature</h3><span class="panel-index">01</span></div>
+        <div class="temperature"><span id="tempF" class="big">--</span><span class="temperature-unit">°F</span></div>
+        <details class="motion-control"><summary><span class="motion-pause">Pause animation</span><span class="motion-resume">Resume animation</span></summary></details>
+        <div class="cabin-state" aria-live="polite"><strong id="cabin-state-title">Waiting for readings</strong><span id="cabin-state-detail">The cabin view will update when the box connects.</span></div>
+        <canvas class="cabin-scene" aria-hidden="true"></canvas>
+        <div class="cabin-bottom"><div id="level" class="level level-none" aria-live="polite"><span class="label"><span class="dot"></span>Alert level</span><span id="level-text" class="big">--</span></div><p id="cabin-scene-caption" class="scene-caption">Illustration paused · no live readings</p></div>
+      </section>
+      <section id="danger" class="reading reading-danger tile" tabindex="-1" aria-labelledby="danger-title">
+        <div class="section-top"><h3 id="danger-title">Time to danger</h3><span class="small-tag">BOX ESTIMATE</span></div>
+        <div class="timer"><span id="minsToDanger" class="big">--</span><span class="timer-unit">MIN</span></div>
+        <p class="timer-note">Reported by your cabin sensor.<br>A missing estimate does not mean the car is safe.</p><p class="emergency-instruction">Go to the car now.</p><div class="timer-track" aria-hidden="true"></div>
+      </section>
+      <section id="heat" class="curve tile" tabindex="-1" aria-labelledby="heat-title">
+        <div class="section-top"><h3 id="heat-title">Cabin heat</h3><span class="chart-key"><i></i>RECORDED</span></div>
+        <p id="chart-freshness" class="chart-freshness">Waiting for readings</p><div id="chart-plot" class="chart-plot" hidden><div class="chart-scale" aria-hidden="true"><span id="chart-high"></span><span id="chart-mid"></span><span id="chart-low"></span></div><div class="chart-wrap"><div id="chart-tooltip" class="chart-tooltip" role="tooltip" hidden><strong id="tooltip-value"></strong><span id="tooltip-time"></span></div><svg id="curve" tabindex="0" aria-describedby="chart-help" viewBox="0 0 300 120" preserveAspectRatio="none" role="img" aria-label="Recorded cabin temperature over time"><defs><linearGradient id="echo-chart-gradient"><stop offset="0" stop-color="#FF9A4A"/><stop offset=".35" stop-color="#FF6150"/><stop offset=".7" stop-color="#F2334F"/><stop offset="1" stop-color="#E0306A"/></linearGradient></defs><line id="curve-danger" x1="0" x2="300" y1="0" y2="0" visibility="hidden"></line><polyline id="curve-line" points=""></polyline><line id="chart-cursor" y1="0" y2="120" visibility="hidden"></line><circle id="chart-dot" r="3" visibility="hidden"></circle></svg></div></div><div id="chart-empty" class="chart-empty"><span class="empty-orbit" aria-hidden="true">∿</span><strong>Waiting for cabin readings</strong><span>Your temperature history will build here.</span></div><p id="chart-help" class="chart-help">The chart will appear after the first temperature reading.</p>
+        <p class="axis"><span id="curve-range">No readings yet</span><span id="curve-danger-label"></span><span id="curve-span"></span></p>
+      </section>
+      <section id="sensors" class="readings tile" tabindex="-1" aria-labelledby="sensors-title">
+        <div class="section-top"><h3 id="sensors-title">Seat sensors</h3><span class="small-tag">02 READINGS</span></div>
+        <div class="reading"><span class="label">Seat occupied</span><span id="seat" class="big">--</span><span class="reading-note">Presence sensor</span></div>
+        <div class="reading"><span class="label">Seat distance</span><div class="sensor-metric"><span id="distanceCm" class="big">--</span><span class="timer-unit">CM</span></div><span class="reading-note">Ultrasonic reading</span></div>
+      </section>
+    </div>
+    <footer><span>Echo / Always within reach.</span><span>Only the button on the box can stop the alarm.</span><a href="#overview">Overview ↑</a></footer>
   </div>
-  <footer><span class="footer-brand">echo<span> / </span>Always within reach.</span><span>Only the button on the box can stop the alarm.</span></footer>
 </main>
 </body>
 </html>

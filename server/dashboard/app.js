@@ -4,7 +4,8 @@
 // startDashboard takes document, fetch, and setTimeout so tests can run it
 // without a browser; the page starts it with the real ones (bottom of file).
 
-import { DANGER_F, feedRows, heatCurve, statusView } from './view.js';
+import { createChartInspector } from './chart.js';
+import { cabinPresentation, DANGER_F, feedRows, heatCurve, statusView } from './view.js';
 
 export const POLL_MS = 2000;
 export const POLLED_PATHS = ['/status', '/history', '/actions'];
@@ -12,6 +13,7 @@ export const POLLED_PATHS = ['/status', '/history', '/actions'];
 // Starts polling. Returns the first poll's promise (for tests).
 export function startDashboard({ document, fetch, setTimeout }) {
   const $ = (id) => document.getElementById(id);
+  const chart = createChartInspector(document);
 
   async function getJson(path) {
     const res = await fetch(path, { method: 'GET', cache: 'no-store' });
@@ -22,6 +24,14 @@ export function startDashboard({ document, fetch, setTimeout }) {
   function renderStatus(view) {
     $('page').className = `theme-${view.theme}`;
     $('page').classList.toggle('stale', !view.online); // old readings never look live
+    const presentation = cabinPresentation(view);
+    $('page').setAttribute('data-cabin-mode', presentation.mode);
+    $('cabin-state-title').textContent = presentation.title;
+    $('cabin-state-detail').textContent = presentation.detail;
+    $('cabin-scene-caption').textContent = !view.online ? 'Illustration paused · no live readings' : 'Cabin illustration · alert level from the box';
+    $('feed-empty-title').textContent = view.online ? 'No activity yet' : 'Activity updates paused';
+    $('feed-empty-detail').textContent = view.online ? 'Calls and response notes will appear here as they happen.' : 'Waiting for a connection. Saved actions stay visible when available.';
+    $('chart-freshness').textContent = view.online ? 'Recorded readings' : 'Updates paused · recorded readings';
     const conn = $('connection');
     conn.textContent = view.connection === 'offline' && view.lastSeen !== '--'
       ? `offline, last seen ${view.lastSeen}` : view.connection;
@@ -45,6 +55,7 @@ export function startDashboard({ document, fetch, setTimeout }) {
   }
 
   function renderCurve(curve) {
+    chart.update(curve);
     $('curve-line').setAttribute('points', curve.points);
     $('curve-range').textContent = curve.minF === '--' ? 'no readings yet' : `${curve.minF}–${curve.maxF} °F`;
     $('curve-span').textContent = curve.start === '--' ? '' : `${curve.start} → ${curve.end}`;

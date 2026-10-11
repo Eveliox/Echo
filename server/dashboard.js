@@ -9,14 +9,17 @@ const DIR = new URL('./dashboard/', import.meta.url);
 export const DASHBOARD_FILES = new Map([
   ['/', { file: 'index.html', type: 'text/html; charset=utf-8' }],
   ['/dashboard/app.js', { file: 'app.js', type: 'text/javascript; charset=utf-8' }],
+  ['/dashboard/chart.js', { file: 'chart.js', type: 'text/javascript; charset=utf-8' }],
+  ['/dashboard/cabin.js', { file: 'cabin.js', type: 'text/javascript; charset=utf-8' }],
   ['/dashboard/view.js', { file: 'view.js', type: 'text/javascript; charset=utf-8' }],
   ['/dashboard/style.css', { file: 'style.css', type: 'text/css; charset=utf-8' }],
 ]);
 
-// Binary assets, copied from app/assets so the page matches the app. Kept
+// Binary assets: shared app fonts/logo plus the generated transparent car. Kept
 // apart from DASHBOARD_FILES (page source) because they are not text. The
 // fonts' OFL licenses sit next to them in dashboard/fonts/ and are not served.
 export const DASHBOARD_ASSETS = new Map([
+  ['/dashboard/assets/transparent-sedan.png', { file: 'assets/transparent-sedan.png', type: 'image/png' }],
   ['/dashboard/fonts/Doto.ttf', { file: 'fonts/Doto.ttf', type: 'font/ttf' }],
   ['/dashboard/fonts/manrope.ttf', { file: 'fonts/manrope.ttf', type: 'font/ttf' }],
   ['/dashboard/fonts/outfit.ttf', { file: 'fonts/outfit.ttf', type: 'font/ttf' }],

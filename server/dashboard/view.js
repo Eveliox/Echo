@@ -122,6 +122,8 @@ export function heatCurve(entries, { width = 300, height = 120, dangerF } = {}) 
   const y = (f) => (hi === lo ? height / 2 : height - ((f - lo) / (hi - lo)) * height);
   const coord = (n) => String(Math.round(n * 10) / 10);
   return {
+    samples: samples.map(s => ({ x: Number(coord(x(s.t))), y: Number(coord(y(s.f))), time: s.t, tempF: s.f })),
+    ticks: [hi, (hi + lo) / 2, lo],
     points: samples.map((s) => `${coord(x(s.t))},${coord(y(s.f))}`).join(' '),
     minF: String(minF),
     maxF: String(maxF),
@@ -140,4 +142,25 @@ export function feedRows(entries) {
       time: clockTime(e.time), action: text(e.action), to: text(e.to), reason: text(e.reason),
     }))
     .reverse();
+}
+
+// Nearest recorded sample by horizontal position, including irregular timestamps.
+export function nearestSample(samples, ratio) {
+  if (!samples?.length || !Number.isFinite(ratio)) return null;
+  const x = Math.max(0, Math.min(1, ratio)) * 300;
+  return samples.reduce((nearest, sample) => Math.abs(sample.x - x) < Math.abs(nearest.x - x) ? sample : nearest);
+}
+
+export function cabinPresentation(view) {
+  if (!view.online) {
+    if (view.level === MISSING && view.connection !== 'server unreachable') {
+      return { mode: 'waiting', title: 'Waiting for readings', detail: 'The cabin view will update when the box connects.' };
+    }
+    return { mode: 'offline', title: 'Connection lost', detail: view.lastSeen === MISSING ? 'Updates paused. Check the car.' : `Last update ${view.lastSeen} · animation paused` };
+  }
+  if (view.level === 'WARNING') return { mode: 'warning', title: 'Cabin warning', detail: 'Heat effects reflect the alert level from the box.' };
+  if (view.level === 'EMERGENCY') return { mode: 'emergency', title: 'Emergency at the car', detail: 'Go to the car now.' };
+  if (view.level === 'OCCUPANT') return { mode: 'caution', title: 'Seat detected', detail: 'Monitoring temperature with the seat occupied.' };
+  if (view.level === MISSING) return { mode: 'waiting', title: 'Waiting for readings', detail: 'No cabin status has been received.' };
+  return { mode: 'monitoring', title: 'Monitoring the cabin', detail: 'Live updates from your box.' };
 }

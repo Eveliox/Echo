@@ -175,3 +175,39 @@ test('feedRows lists actions newest first with only the four action-log fields',
   ]);
   assert.deepEqual(feedRows(undefined), []);
 });
+
+test('chart inspection retains exact values and chooses by time position, not sample index', async () => {
+  const { nearestSample } = await import('../dashboard/view.js');
+  const curve = heatCurve([
+    { receivedAt: 1000, status: status({ tempF: 80.123456789 }) },
+    { receivedAt: 2000, status: status({ tempF: 91.987654321 }) },
+    { receivedAt: 11000, status: status({ tempF: 103.5 }) },
+    { receivedAt: 'invalid', status: status() },
+  ], { dangerF: 104 });
+  assert.equal(curve.samples[0].tempF, 80.123456789);
+  assert.equal(curve.samples[1].time, 2000);
+  assert.equal(nearestSample(curve.samples, .3).tempF, 91.987654321);
+  assert.equal(nearestSample(curve.samples, -1).time, 1000);
+  assert.equal(nearestSample(curve.samples, 2).time, 11000);
+  assert.equal(nearestSample([], .5), null);
+  assert.equal(nearestSample(curve.samples, NaN), null);
+  assert.equal(curve.ticks[0], 106);
+  const single = heatCurve([{ receivedAt: 0, status: status({ tempF: 0 }) }]);
+  assert.equal(nearestSample(single.samples, 0).tempF, 0);
+});
+
+test('cabin presentation follows received state and never treats a lost alarm as live', async () => {
+  const { cabinPresentation } = await import('../dashboard/view.js');
+  const live = state => statusView({ online: true, lastSeen: 1000, status: status({ state }) });
+  assert.equal(cabinPresentation(live('IDLE')).mode, 'monitoring');
+  assert.equal(cabinPresentation(live('ARMED')).mode, 'monitoring');
+  assert.equal(cabinPresentation(live('OCCUPANT')).mode, 'caution');
+  assert.equal(cabinPresentation(live('WARNING')).mode, 'warning');
+  assert.equal(cabinPresentation(live('EMERGENCY')).mode, 'emergency');
+  assert.equal(cabinPresentation(statusView(null)).mode, 'waiting');
+  assert.equal(cabinPresentation(statusView(null, false)).mode, 'offline');
+  const lost = statusView({ online: false, lastSeen: 1000, status: status({ state: 'EMERGENCY' }) });
+  assert.equal(lost.theme, 'emergency');
+  assert.equal(cabinPresentation(lost).mode, 'offline');
+  assert.match(cabinPresentation(lost).detail, /animation paused/);
+});

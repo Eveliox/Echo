@@ -30,13 +30,14 @@ const request = (method, path) => new Promise((resolve, reject) => {
 const asset = (file) => readFileSync(new URL(`../dashboard/${file}`, import.meta.url));
 
 const EXPECTED = {
+  '/dashboard/assets/transparent-sedan.png': 'image/png',
   '/dashboard/fonts/Doto.ttf': 'font/ttf',
   '/dashboard/fonts/manrope.ttf': 'font/ttf',
   '/dashboard/fonts/outfit.ttf': 'font/ttf',
   '/dashboard/echo-logo.png': 'image/png',
 };
 
-test('the asset allow-list is exactly the three app fonts and the logo', () => {
+test('the asset allow-list is exactly the app fonts, logo, and transparent car', () => {
   assert.deepEqual([...DASHBOARD_ASSETS.keys()].sort(), Object.keys(EXPECTED).sort());
   for (const path of DASHBOARD_ASSETS.keys()) assert.ok(!DASHBOARD_FILES.has(path), path);
 });
@@ -104,10 +105,17 @@ test('CSP adds only same-origin fonts and images', () => {
   assert.ok(!/unsafe|\*|https?:|data:/.test(DASHBOARD_CSP));
 });
 
-test('style.css loads the fonts and logo from the allow-list only', () => {
+test('styles and car renderer load only allow-listed local assets', () => {
   const css = readFileSync(new URL('../dashboard/style.css', import.meta.url), 'utf8');
   const urls = [...css.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/g)].map((m) => m[1]);
-  assert.deepEqual(urls.sort(), Object.keys(EXPECTED).sort());
+  const renderer = readFileSync(new URL('../dashboard/cabin.js', import.meta.url), 'utf8');
+  urls.push(...[...renderer.matchAll(/image\.src = '([^']+)'/g)].map(m => m[1]));
+  const localPaints = urls.filter(url => url.startsWith('#'));
+  const html = readFileSync(new URL('../dashboard/index.html', import.meta.url), 'utf8');
+  for (const paint of localPaints) {
+    assert.ok(html.includes(`<linearGradient id="${paint.slice(1)}"`), `${paint} resolves to an inline SVG gradient`);
+  }
+  assert.deepEqual(urls.filter(url => !url.startsWith('#')).sort(), Object.keys(EXPECTED).sort());
   assert.ok(!/@import|https?:\/\//.test(css), 'no remote CSS or fonts');
   // Doto renders at 900, the weight of the app's Doto file (Doto Black).
   assert.match(css, /@font-face\s*{[^}]*font-family:\s*"Doto";[^}]*font-weight:\s*900;/);

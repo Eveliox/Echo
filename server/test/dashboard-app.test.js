@@ -24,6 +24,9 @@ function fakeElement(tag) {
     },
     set innerHTML(_) { throw new Error('innerHTML must never be used'); },
     setAttribute(k, v) { el.attrs[k] = String(v); },
+    listeners: {},
+    addEventListener(name, handler) { el.listeners[name] = handler; },
+    getBoundingClientRect() { return { left: 100, width: 300 }; },
     append(...kids) { el.children.push(...kids); },
     replaceChildren(...kids) { el.children = kids; },
   };
@@ -265,4 +268,52 @@ test('a failed fetch or a non-2xx answer shows "server unreachable" and keeps po
   bodies['/actions'] = sample['/actions'];
   await timers[2].fn();
   assert.equal(text(doc, 'connection'), 'online', 'recovers on the next good poll');
+});
+
+
+test('chart pointer and keyboard inspection preserve exact readings and clear expired selections', async () => {
+  const { createChartInspector } = await import('../dashboard/chart.js');
+  const doc = fakeDocument();
+  const chart = createChartInspector(doc);
+  const curve = heatCurve(sample['/history'].entries, { dangerF: DANGER_F });
+  chart.update(curve);
+  assert.equal(doc.byId.get('chart-empty').hidden, true);
+  const plot = doc.byId.get('curve');
+  plot.listeners.pointermove({ clientX: 100, pointerType: 'mouse' });
+  assert.equal(text(doc, 'tooltip-value'), '94.1 °F');
+  plot.listeners.pointerdown({ clientX: 399, pointerType: 'touch' });
+  assert.equal(text(doc, 'tooltip-value'), '96.4 °F');
+  plot.listeners.pointerleave();
+  assert.equal(doc.byId.get('chart-tooltip').hidden, false, 'tap stays pinned');
+  plot.listeners.keydown({ key: 'ArrowLeft', preventDefault() {} });
+  assert.equal(text(doc, 'tooltip-value'), '94.1 °F');
+  const updated = heatCurve([{ receivedAt: t2, status: status({ tempF: 96.456789 }) }], { dangerF: DANGER_F });
+  chart.update(updated);
+  assert.equal(doc.byId.get('chart-tooltip').hidden, true, 'expired reading is not silently replaced');
+  plot.listeners.focus();
+  assert.equal(text(doc, 'tooltip-value'), '96.456789 °F');
+  plot.listeners.keydown({ key: 'Escape' });
+  assert.equal(doc.byId.get('chart-tooltip').hidden, true);
+  chart.update(heatCurve([]));
+  assert.equal(doc.byId.get('chart-empty').hidden, false);
+  assert.equal(doc.byId.get('chart-plot').hidden, true);
+});
+
+test('empty and offline presentations are explicit and recover with new readings', async () => {
+  const doc = fakeDocument();
+  const bodies = { '/status': { online: false, status: null }, '/history': { entries: [] }, '/actions': { entries: [] } };
+  const { timers, setTimeout } = fakeTimers();
+  await startDashboard({ document: doc, fetch: instantFetch(bodies).fetch, setTimeout });
+  assert.equal(doc.byId.get('page').attrs['data-cabin-mode'], 'waiting');
+  assert.equal(text(doc, 'cabin-state-title'), 'Waiting for readings');
+  assert.equal(doc.byId.get('chart-empty').hidden, false);
+  Object.assign(bodies, sample);
+  await timers[0].fn();
+  assert.equal(doc.byId.get('page').attrs['data-cabin-mode'], 'warning');
+  bodies['/status'] = new Error('offline');
+  await timers[1].fn();
+  assert.equal(doc.byId.get('page').attrs['data-cabin-mode'], 'offline');
+  assert.equal(text(doc, 'cabin-state-title'), 'Connection lost');
+  assert.equal(text(doc, 'chart-freshness'), 'Updates paused · recorded readings');
+  assert.equal(doc.byId.get('feed').children.length, 2, 'cached activity remains visible');
 });

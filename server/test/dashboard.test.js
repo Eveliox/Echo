@@ -130,7 +130,13 @@ test('index.html loads only allow-listed same-origin files and has no inline cod
   }
   const refs = [...html.matchAll(/\b(?:src|href)="([^"]*)"/g)].map((m) => m[1]);
   assert.ok(refs.length >= 2);
-  for (const ref of refs) assert.ok(DASHBOARD_FILES.has(ref), `${ref} is served`);
+  for (const ref of refs) {
+    if (ref.startsWith('#')) {
+      assert.ok(html.includes(`id="${ref.slice(1)}"`), `${ref} targets an existing section`);
+    } else {
+      assert.ok(DASHBOARD_FILES.has(ref), `${ref} is served`);
+    }
+  }
   for (const { file, text } of files.filter((f) => f.file.endsWith('.js'))) {
     for (const m of text.matchAll(/\bimport\b[^'"]*['"]([^'"]+)['"]/g)) {
       assert.ok(DASHBOARD_FILES.has(new URL(m[1], 'http://x/dashboard/').pathname), `${file} imports ${m[1]}`);

@@ -334,3 +334,45 @@ Decision (David, with Eve's agreement): the box has no joystick, photoresistor, 
 - docs/firmware.md also records the bench finding: while wired to the Mega, the ESP runs on Mega 5V → VIN (its USB chip holds RX high), so the "USB power bank" advice is replaced.
 - To do: re-flash the Mega (check the port with `arduino-cli board list`); re-import notebooks/heat_test.py into Databricks.
 - For Eve: the app's Home sensor row now has one cell, and model.test.js lost the battery zero case (decimal coverage remains in the viewModel tests).
+
+## 2026-10-11 (Eve, dashboard palette alignment)
+
+- Kept the cinematic dashboard layout and motion, replacing the charcoal treatment with the mobile UI's exact peach/gold/orange background and brown text tokens. Panels use the shared translucent cream surfaces. Restored the unfiltered original orange-to-pink logo; the red emergency state gives it a cream backing for visibility.
+- Browser checks passed across desktop/mobile widths, emergency/lost-alarm states, and reduced motion. No mobile app or data behavior changes.
+
+## 2026-10-11 (Eve, reference dashboard shell)
+
+- Restyled the browser dashboard around the supplied smart-home layout while retaining the mobile palette and original logo: sticky side panel, section menu with graduated emphasis, icon capsule, 8px mixed tile grid, 14px corners, and light system-font metrics. Mobile uses a horizontal menu and single-column cards; emergency keeps the timer first.
+- Navigation and corner arrows focus existing in-page sections via fragment links and CSS target styling. No routes, polling, APIs, or data logic changed. No profile, unread count, or percent-change data exists, so these were not fabricated; the bell links to response activity. Activity rows remain readable and noninteractive rather than suggesting unavailable detail pages.
+- Updated resource-link validation to allow fragment links only when their target exists; file allow-list checks remain. All 267 server tests passed on rerun after an unrelated startup-log timing failure. Browser checks passed at 1440/768/390/320 widths, section/rail/bell links, emergency/lost-alarm states, reduced motion, and unchanged logo colors.
+
+## 2026-10-11 (Eve, logo-gradient accents and rotating seat)
+
+- Added orange/coral/pink decorative tokens matching the original logo; used on the cabin backdrop, inline SVG heat curve, and small accents. The actual logo asset remains unmodified; status and emergency color semantics remain intact.
+- Replaced the flat SVG chair with a CSS 3D seat made from eight six-faced solids, cream upholstery, and gradient shell. Slow 24-second rotation, pause/resume disclosure control, hover pause, and static reduced-motion/emergency presentation. No dependencies, external models, or data logic changes.
+- All 267 server tests pass. Browser checks cover responsive layouts, rotation changing transforms, pause freezing transforms, keyboard resume, emergency stop, reduced motion, and section navigation. Asset test now validates local SVG gradient references separately from the unchanged file allow-list.
+
+## 2026-10-11 (Eve, exact gradient and borderless shell)
+
+- Applied Eve's supplied gradient shades: #FF9A4A, #FF6150, #F2334F, #E0306A, including the chair shell and chart gradient. Original logo image unchanged.
+- Removed the vertical icon capsule and its CSS; retained the text section menu. Removed the exterior rounded frame, coral top rule, and surrounding gradient gutter; aligned sidebar text to the freed space. Card separators retained.
+- All 267 server tests pass; browser checks cover the removed capsule, absent shell border, responsive layout, navigation, and chair motion controls.
+
+## 2026-10-11 (Eve, animated car cabin scene)
+
+- Replaced the CSS chair with a lightweight procedural 3D sedan rendered on Canvas: curved cream body, wheels, translucent roof, coral seats, and orange-to-pink heat waves. Gentle orbit keeps the interior visible. Decorative only; no inferred heat values or data changes.
+- New same-origin dashboard/cabin.js is served through the explicit dashboard asset allow-list. No dependencies or external model requests. Pauses via the disclosure control, mouse hover, reduced motion, hidden page/offscreen canvas, and emergency mode.
+- All 267 server tests and browser checks passed, including animated canvas changes, frozen pause/emergency frames, keyboard resume, and 1440/768/390/320 layouts. Restarted the local dashboard and isolated synthetic-data preview to load the new asset route; calls remain off.
+
+## 2026-10-11 (Eve, realistic transparent sedan)
+
+- Replaced the geometric car with an imagegen automotive render matching the supplied reference: realistic white electric sedan, translucent body and roof, visible interior and highlighted coral rear seat. Asset has true alpha, copied into server/dashboard/assets/transparent-sedan.png and explicitly allow-listed.
+- cabin.js now animates gentle float and heat shimmer around the locally bundled render; it is a rendered image, not an orbitable mesh. Pause, reduced-motion, visibility, and emergency handling remain. Original logo unchanged.
+- All 267 tests pass on rerun; the known startup-log timing test failed on the initial run. Browser screenshots and animation checks passed. Both local servers restarted for the new asset route.
+
+## 2026-10-11 (Eve, dashboard detail polish)
+
+- Enlarged the cabin tile and separated the transparent car from its status copy. Increased supporting typography and aligned card metrics; preserved the original logo and palette.
+- Cabin presentation now follows received status: quiet monitoring, stronger warning heat, paused waiting/offline and emergency motion. Lost connections preserve cached readings and emergency treatment.
+- Added chart temperature ticks and exact recorded-value/time tooltips for pointer, touch, and keyboard navigation. Selection survives polling by timestamp and clears when the reading leaves history. Added intentional empty history/activity and waiting/offline copy.
+- All 271 server tests passed. Browser checks passed across desktop/tablet/mobile widths, tooltips, keyboard navigation, paused/offline recovery, empty history, emergency and reduced motion, with no browser errors. Restarted the local dashboard and isolated synthetic-data preview; calls remain disabled.
