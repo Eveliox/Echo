@@ -261,3 +261,13 @@ Still open for hardware (David):
 2. #13 battery: fit the A0 divider (Mega VIN → 10k → A0 → 10k → GND), set BATTERY_DIVIDER_WIRED = true locally, pack in the barrel jack, laptop USB unplugged, siren keeps going, GET /status shows a numeric battery.
 3. #25 phone side-by-side (second server on 3001, replay with --token).
 4. #12 optional: watch minsToDanger count down and LCD line 2 during the heat run.
+
+## 2026-10-11 (David, seat rule change)
+
+Decision (David, hardware owner): a reading counts as occupied-looking if its median is 40 cm or less, OR at least the existing drop below the power-up baseline; three readings in a row both ways, as before. The 40 cm rule works even with no baseline, so a bad or missing power-up measurement can no longer hide an occupant. On the bench, power-ups twice took a too-short baseline, and even a hand at 3 cm never counted. The change only adds detections (the reviewer proved it; a test fails if the 40 cm rule is removed). docs/firmware.md "Seat detection" states the rule. One existing assertion changed deliberately: test_seat_baseline_needs_majority_valid now checks that a no-baseline reading over 40 cm stays empty, instead of 5 cm.
+
+Aiming rule (supersedes "aim at 30–60 cm" in the 2026-10-10 notes): the empty seat must read well over 40 cm, ideally 55–60 cm. At 40 cm or less it reads occupied forever (false alarms). Between 40 and 50 cm the margin is thin (at a 45 cm empty seat, a 5 cm change counts). Verified on the box after uploading: empty seat 49–52 cm → no; hand at 26–30 cm → yes after 3 readings.
+
+For Eve: the seat rule is a safety behavior change; please review docs/firmware.md "Seat detection". docs/backlog.md #3's wording still lists only the drop rule.
+
+Also: the dashboard now shows "Seat distance cm" (the box's distanceCm as sent), which makes bad aiming visible at a glance.

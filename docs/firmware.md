@@ -149,7 +149,7 @@ LCD line 1 always shows the level and temperature, e.g. `WARNING  96.4F`.
 - Levels only climb on their own. Once WARNING or EMERGENCY starts, it stays even if the temperature drops or the seat reads empty.
 - Only the cancel button or the ignition clears an alarm. Cancel returns to ARMED; plugging the ignition back in returns to IDLE. Nothing sent over Wi-Fi can silence it.
 
-**Seat detection:** at power-up, with the seat empty, the Mega measures the seat distance 20 times and stores the average as the baseline. The seat counts as occupied when the median of 5 pings is at least 10 cm shorter than the baseline, three readings in a row. The PIR reports movement separately; it does not change the level by itself, and the box works the same with it unplugged.
+**Seat detection:** at power-up, with the seat empty, the Mega measures the seat distance 20 times and stores the average as the baseline. The seat counts as occupied when the median of 5 pings is 40 cm or less, or at least 10 cm shorter than the baseline, three readings in a row. The 40 cm rule works even when the baseline is missing or was taken with something near the sensor, so mount the sensor where the empty seat reads more than 40 cm; otherwise the seat reads occupied all the time. The PIR reports movement separately; it does not change the level by itself, and the box works the same with it unplugged.
 
 **Minutes to danger:** the Mega keeps the last 2 minutes of LM35 readings (60 samples) and fits a straight line to get the warming rate in °F per minute:
 

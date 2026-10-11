@@ -19,8 +19,9 @@
 //   too far) is invalid and dropped. It never counts as a short distance.
 // - A reading needs a majority of valid pings; otherwise it is "no reading":
 //   the seat state holds and both in-a-row counts restart.
-// - The baseline averages only valid samples and needs a majority of them;
-//   without a baseline the seat stays empty.
+// - The baseline averages only valid samples and needs a majority of them.
+//   Without a baseline only the absolute rule (SEAT_OCCUPIED_MAX_CM) applies:
+//   a valid median at or under it looks occupied, anything longer looks empty.
 // - Symmetric: an occupied seat goes back to empty only after the same number
 //   of not-occupied readings in a row.
 // ---------------------------------------------------------------------------
@@ -28,6 +29,7 @@
 static const uint8_t SEAT_BASELINE_SAMPLES = 20;
 static const uint8_t SEAT_PINGS_PER_READING = 5;
 static const float SEAT_DROP_CM = 10.0f;
+static const float SEAT_OCCUPIED_MAX_CM = 40.0f;
 static const uint8_t SEAT_READINGS_IN_A_ROW = 3;
 
 // HC-SR04 datasheet range; anything outside is treated as a failed ping.
@@ -105,12 +107,14 @@ inline bool seatSetBaseline(SeatDetector &s, const float samples[SEAT_BASELINE_S
 // seat counts as occupied afterwards.
 inline bool seatUpdate(SeatDetector &s, const float pings[SEAT_PINGS_PER_READING]) {
   float median = 0.0f;
-  if (!s.hasBaseline || !seatMedianCm(pings, median)) {
+  if (!seatMedianCm(pings, median)) {
     s.occupiedRun = 0;
     s.emptyRun = 0;
     return s.occupied;
   }
-  if (median <= s.baselineCm - SEAT_DROP_CM) {
+  bool looksOccupied = median <= SEAT_OCCUPIED_MAX_CM ||
+                       (s.hasBaseline && median <= s.baselineCm - SEAT_DROP_CM);
+  if (looksOccupied) {
     s.emptyRun = 0;
     if (s.occupiedRun < SEAT_READINGS_IN_A_ROW) s.occupiedRun++;
     if (s.occupiedRun >= SEAT_READINGS_IN_A_ROW) s.occupied = true;
@@ -422,8 +426,9 @@ inline bool debounceUpdate(Debouncer &d, bool raw, uint32_t nowMs) {
 // - The seat baseline is taken only at power-up with the seat empty (doc,
 //   "Seat detection"); there is no automatic retry, because a later retry could
 //   learn an occupied seat as "empty" and never alarm. If the power-up baseline
-//   fails, the box cannot reach OCCUPANT until it is power-cycled with the seat
-//   empty, and it shows a fault until then.
+//   fails, only the absolute rule (SEAT_OCCUPIED_MAX_CM) can mark the seat
+//   until the box is power-cycled with the seat empty, and it shows a fault
+//   until then.
 // - While there is no baseline and the level is below OCCUPANT, the RGB LED
 //   shows a fault code: magenta (red + blue, a color no level uses), two short
 //   flashes every FAULT_CYCLE_MS. From OCCUPANT up the level pattern always

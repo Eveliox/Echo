@@ -83,6 +83,82 @@ static void test_seat_constants_match_doc() {
   CHECK(SEAT_READINGS_IN_A_ROW == 3);
 }
 
+static void test_seat_occupied_max_constant_matches_doc() {
+  CHECK(SEAT_OCCUPIED_MAX_CM == 40.0f);
+}
+
+// Absolute rule alone (no baseline): 40 cm or less marks the seat, but only
+// after the readings-in-a-row.
+static void test_seat_absolute_rule_without_baseline_needs_run() {
+  SeatDetector s;
+  seatInit(s);
+  CHECK(!feed(s, 30.0f, 2));
+  CHECK(feed(s, 30.0f, 1));
+  CHECK(!s.hasBaseline);
+}
+
+// Boundary of the absolute rule, with a 45 cm baseline so the drop rule can't
+// be what decides (neither 40.0 nor 40.1 is 10 cm under 45).
+static void test_seat_absolute_rule_boundary() {
+  SeatDetector s = seatWithBaseline(45.0f);
+  CHECK(feed(s, 40.0f, 3));
+
+  SeatDetector t = seatWithBaseline(45.0f);
+  CHECK(!feed(t, 40.1f, 50));
+}
+
+// Either rule is enough: 100 cm is far over 40 but 20 cm under a 120 baseline.
+static void test_seat_either_rule_marks_occupied() {
+  SeatDetector s = seatWithBaseline(120.0f);
+  CHECK(!feed(s, 100.0f, 2));
+  CHECK(feed(s, 100.0f, 1));
+}
+
+// Baseline taken with a hand near the sensor (too short): a hand at 8 or 30 cm
+// still counts by the absolute rule, while the empty seat at 50 cm stays empty.
+static void test_seat_short_baseline_cannot_hide_occupant() {
+  SeatDetector a = seatWithBaseline(12.0f);
+  CHECK(!feed(a, 8.0f, 2));
+  CHECK(feed(a, 8.0f, 1));
+
+  SeatDetector b = seatWithBaseline(12.0f);
+  CHECK(!feed(b, 30.0f, 2));
+  CHECK(feed(b, 30.0f, 1));
+
+  SeatDetector c = seatWithBaseline(12.0f);
+  CHECK(!feed(c, 50.0f, 50));
+}
+
+// Invalid pings stay "no reading" under the absolute rule too, with or
+// without a baseline.
+static void test_seat_absolute_rule_ignores_invalid_pings() {
+  SeatDetector none;
+  seatInit(none);
+  CHECK(!feed(none, 0.0f, 50));
+  CHECK(!feed(none, 1.0f, 50));
+  CHECK(!feed(none, -5.0f, 50));
+  CHECK(!feed(none, NAN, 50));
+
+  SeatDetector s = seatWithBaseline(EMPTY_CM);
+  CHECK(!feed(s, 0.0f, 50));
+  CHECK(!feed(s, NAN, 50));
+}
+
+// Back to empty after the same run of readings over 40 cm and not 10 cm under
+// the baseline, with and without a baseline.
+static void test_seat_absolute_rule_returns_to_empty_symmetrically() {
+  SeatDetector s = seatWithBaseline(EMPTY_CM);
+  CHECK(feed(s, 30.0f, SEAT_READINGS_IN_A_ROW));
+  CHECK(feed(s, 55.0f, SEAT_READINGS_IN_A_ROW - 1));
+  CHECK(!feed(s, 55.0f, 1));
+
+  SeatDetector n;
+  seatInit(n);
+  CHECK(feed(n, 30.0f, SEAT_READINGS_IN_A_ROW));
+  CHECK(feed(n, 40.5f, SEAT_READINGS_IN_A_ROW - 1));
+  CHECK(!feed(n, 40.5f, 1));
+}
+
 static void test_seat_flip_with_literals() {
   SeatDetector s = seatWithBaseline(60.0f);
   CHECK(!feed(s, 50.0f, 2));
@@ -118,8 +194,8 @@ static void test_seat_baseline_needs_majority_valid() {
   for (uint8_t i = 0; i + 1 < SEAT_MIN_VALID_BASELINE; i++) samples[i] = EMPTY_CM;
   CHECK(!seatSetBaseline(s, samples));
   CHECK(!s.hasBaseline);
-  // Without a baseline even a very short distance never marks the seat.
-  CHECK(!feed(s, 5.0f, SEAT_READINGS_IN_A_ROW * 3));
+  // Without a baseline a distance over SEAT_OCCUPIED_MAX_CM never marks the seat.
+  CHECK(!feed(s, SEAT_OCCUPIED_MAX_CM + 5.0f, SEAT_READINGS_IN_A_ROW * 3));
 }
 
 static void test_seat_median_of_pings() {
@@ -535,8 +611,10 @@ static void test_debounce_press_and_release() {
 // Fault indicator, humidity age limit
 // ---------------------------------------------------------------------------
 
-// Pins the no-retry decision's consequence: with a failed power-up baseline the
-// seat never reads occupied, so the fault code is the only way to notice.
+// Pins the no-retry decision's consequence: with a failed power-up baseline
+// only the absolute rule can mark the seat; a drop that would count against a
+// baseline (OCCUPIED_CM, over 40 cm) never does, so the fault code stays the
+// way to notice.
 static void test_seat_without_baseline_never_occupied() {
   SeatDetector s;
   seatInit(s);
@@ -2283,6 +2361,13 @@ static void test_wifi_post_coarse_step_and_wraparound() {
 
 int main() {
   test_seat_constants_match_doc();
+  test_seat_occupied_max_constant_matches_doc();
+  test_seat_absolute_rule_without_baseline_needs_run();
+  test_seat_absolute_rule_boundary();
+  test_seat_either_rule_marks_occupied();
+  test_seat_short_baseline_cannot_hide_occupant();
+  test_seat_absolute_rule_ignores_invalid_pings();
+  test_seat_absolute_rule_returns_to_empty_symmetrically();
   test_seat_flip_with_literals();
   test_seat_baseline_is_mean_not_median();
   test_seat_baseline_is_average_of_samples();
