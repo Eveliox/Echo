@@ -70,6 +70,7 @@ export function statusView(snapshot, reachable = true) {
     tempF: formatValue(status?.tempF),
     minsToDanger: formatValue(status?.minsToDanger),
     seat: seatText(status?.presence),
+    distanceCm: formatValue(status?.distanceCm),
     connection,
     online,
     lastSeen: isNumber(snapshot?.lastSeen) ? clockTime(snapshot.lastSeen) : MISSING,

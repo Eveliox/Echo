@@ -34,6 +34,7 @@ export function startDashboard({ document, fetch, setTimeout }) {
     $('tempF').textContent = view.tempF;
     $('minsToDanger').textContent = view.minsToDanger;
     $('seat').textContent = view.seat;
+    $('distanceCm').textContent = view.distanceCm;
   }
 
   function renderCurve(curve) {
