@@ -4,7 +4,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
-function useReducedMotion() {
+export function useReducedMotion() {
   const [reduced, setReduced] = useState(true);
   useEffect(() => {
     let mounted = true;

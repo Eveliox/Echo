@@ -17,9 +17,9 @@ export function WarmBackground() {
         <RadialGradient id="heatEmber"><Stop offset="0" stopColor="#E0306A" stopOpacity="0.45" /><Stop offset="1" stopColor="#E0306A" stopOpacity="0" /></RadialGradient>
       </Defs>
       <Rect width="390" height="850" fill={palette.ground} />
-      <Rect width="390" height="850" fill="url(#heatSky)" />
-      <Rect x="-140" y="210" width="670" height="480" fill="url(#heatSun)" />
-      <Rect x="15" y="410" width="400" height="600" fill="url(#heatEmber)" />
+      <Rect width="390" height="850" fill="url(#heatSky)" opacity="0.12" />
+      <Rect x="-140" y="210" width="670" height="480" fill="url(#heatSun)" opacity="0.12" />
+      <Rect x="15" y="410" width="400" height="600" fill="url(#heatEmber)" opacity="0.08" />
     </Svg>
   </View>;
 }
@@ -84,13 +84,14 @@ export function ActionButton({ children, onPress, secondary = false, disabled = 
 }
 export function Notice({ title, children, icon = 'shield', urgent = false }) {
   const color = urgent ? '#B62432' : palette.muted;
-  return <View accessibilityRole={urgent ? 'alert' : undefined} style={[s.notice, urgent && { borderColor: color, borderTopWidth: 2 }]}><View style={s.noticeIcon}><Icon name={icon} size={20} color={color} /></View><View style={{ flex: 1, gap: 5 }}>{title && <Text style={[s.noticeTitle, urgent && { color }]}>{title}</Text>}<Text style={[s.noticeText, urgent && { color: palette.text }]}>{children}</Text></View></View>;
+  return <View accessibilityRole={urgent ? 'alert' : undefined} style={[s.notice, urgent && { borderColor: color, borderTopWidth: 2 }]}><View style={s.noticeIcon}><Icon name={icon} size={20} color={color} /></View><View accessibilityLiveRegion="polite" style={{ flex: 1, gap: 5 }}>{title && <Text style={[s.noticeTitle, urgent && { color }]}>{title}</Text>}<Text style={[s.noticeText, urgent && { color: palette.text }]}>{children}</Text></View></View>;
 }
 export function Navigation({ tab, onChange, bottom, light = true }) {
   return <View style={[s.navOuter, { paddingBottom: Math.max(bottom, 12) }, { backgroundColor: light ? 'transparent' : '#7E1822' }]}><View accessibilityRole="tablist" style={[s.nav, { borderColor: light ? '#35231525' : '#FFFFFF30' }]}>
     {['Car', 'Feed', 'Contacts', 'Insights'].map(name => {
       const selected = tab === name;
       return <Pressable key={name} accessibilityRole="tab" accessibilityState={{ selected }} onPress={() => onChange(name)} style={({ pressed }) => [s.tab, pressed && { opacity: 0.7 }]}>
+        {selected && light && <AccentRule />}
         <Icon name={{ Car: 'car', Feed: 'activity', Contacts: 'contacts', Insights: 'heat' }[name]} color={light ? selected ? logo.magenta : '#715037' : selected ? '#FFF5E9' : '#EFC4BD'} size={21} />
         <Text style={[s.tabLabel, selected && { color: palette.text }, { color: light ? selected ? logo.magenta : '#715037' : selected ? '#FFF5E9' : '#EFC4BD' }]}>{name}</Text>
       </Pressable>;
@@ -102,7 +103,7 @@ export function AccentRule() {
 }
 const s = StyleSheet.create({
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 8 }, logo: { width: 92, height: 34 },
-  statusLabel: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 7, alignSelf: 'center' }, dot: { width: 5, height: 5, borderRadius: 3 }, statusText: { fontFamily: 'Outfit', fontSize: 10, letterSpacing: 1.2 },
+  statusLabel: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 7, alignSelf: 'center' }, dot: { width: 5, height: 5, borderRadius: 3 }, statusText: { fontFamily: 'Outfit', fontSize: 12, letterSpacing: 1.2 },
   button: { minHeight: 58, borderRadius: 18, padding: 16, backgroundColor: logo.magenta, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 },
   secondary: { backgroundColor: '#FFF3CD26', borderWidth: 1, borderColor: '#35231555' }, disabled: { opacity: 0.65 }, buttonText: { fontFamily: 'Outfit', fontSize: 17, color: '#FFF5E9', flexShrink: 1 },
   notice: { borderColor: palette.line, borderTopWidth: 1, paddingVertical: 18, flexDirection: 'row', gap: 12 }, noticeIcon: { paddingTop: 1 }, noticeTitle: { fontFamily: 'Outfit', color: palette.text, fontSize: 14 }, noticeText: { fontFamily: 'Manrope', fontSize: 12, lineHeight: 19, color: palette.muted },

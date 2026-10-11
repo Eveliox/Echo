@@ -1,42 +1,23 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, Defs, Line, LinearGradient, Path, Stop } from 'react-native-svg';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { LaunchCover } from './src/LaunchCover';
 import { HeatInsights } from './src/HeatInsights';
 import { ContactsEditor } from './src/ContactsEditor';
-import { CountdownRing, HeatTrace } from './src/HeatMotion';
+import { CabinHome, LatestActivity } from './src/CabinHome';
+import { Chart } from './src/Chart';
+import { CountdownRing } from './src/HeatMotion';
 import { config } from './config';
 import { poll, readResource, request } from './src/client';
 import { activityRows, activityTime } from './src/activity';
-import { DANGER_F, emergencyPhone, heatCurve, lostAlarmCopy, sensorReadings, viewModel } from './src/model';
+import { emergencyPhone, lostAlarmCopy, viewModel } from './src/model';
 import { AccentRule, ActionButton, Brand, Halo, Icon, Navigation, Notice, palette, StatusLabel, WarmBackground } from './src/ui';
 
 // Hand off the native loader only after the in-app logo has loaded and laid out.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-function Chart({ entries, status, online }) {
-  const [width, setWidth] = useState(280);
-  const curve = heatCurve(entries, status, online, Math.max(1, width - 12), 112);
-  const last = curve.points.at(-1);
-  const path = curve.points.map((point, i) => `${i ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
-  return <View style={styles.chartCard}>
-    <View style={styles.row}><View style={styles.inline}><Icon name="activity" size={16} color="#FFF5E9" /><Text style={[styles.sectionLabel, styles.onRed]}>CABIN TREND</Text></View><Text style={[styles.small, styles.onRed]}>{DANGER_F}°F danger</Text></View>
-    <View onLayout={event => setWidth(event.nativeEvent.layout.width)} style={{ height: 128, marginTop: 14 }} accessibilityLabel="Recorded cabin temperatures. Dashed forecast uses the box's minutes to danger.">
-      <Svg width={width} height={128} viewBox={`-6 -6 ${width} 128`}>
-        <Defs><LinearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.18" /><Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" /></LinearGradient></Defs>
-        <Line x1={0} x2={width} y1={curve.dangerY} y2={curve.dangerY} stroke="#FFD5A5" strokeWidth={1.25} />
-        {last && <><Path d={`${path} L ${last.x} 126 L ${curve.points[0].x} 126 Z`} fill="url(#chartFill)" /><HeatTrace points={curve.points} path={path} /></>}
-        {curve.forecast && <><Line x1={curve.forecast.from.x} y1={curve.forecast.from.y} x2={curve.forecast.to.x} y2={curve.forecast.to.y} stroke="#F6F1F2" strokeWidth={2} strokeDasharray="4 5" /><Circle cx={curve.forecast.to.x} cy={curve.forecast.to.y} r={4} fill="#FFD5A5" /></>}
-        {last && <><Circle cx={last.x} cy={last.y} r={8} fill="#FFFFFF20" /><Circle cx={last.x} cy={last.y} r={3.5} fill="#FFFFFF" /></>}
-      </Svg>
-      {!last && <Text style={[styles.chartEmpty, styles.onRed]}>Waiting for temperature history</Text>}
-    </View>
-    <View style={styles.row}><Text style={[styles.small, styles.onRed]}>Recorded temperatures</Text><Text style={[styles.small, styles.onRed]}>{curve.forecast ? `Box forecast · ${curve.forecast.label}` : 'Latest reading'}</Text></View>
-  </View>;
-}
 // Each resource owns its request lifecycle, so an unavailable contacts/feed
 // endpoint cannot block status polling or change the car's online indicator.
 function useResource(path) {
@@ -123,6 +104,8 @@ function EchoApp() {
   const [fontsLoaded, fontError] = useFonts({ Doto: require('./assets/fonts/Doto.ttf'), Manrope: require('./assets/fonts/manrope.ttf'), Outfit: require('./assets/fonts/outfit.ttf') });
   const [data, setData] = useState({ snapshot: null, entries: [] });
   const [tab, setTab] = useState('Car');
+  const [carVisible, setCarVisible] = useState(true);
+  const carBounds = useRef({ y: 0, height: 600 });
   const [launchDone, setLaunchDone] = useState(false);
   const actions = useResource('/actions');
   const contacts = useResource('/contacts');
@@ -186,9 +169,10 @@ function EchoApp() {
     {tab !== 'Car' && vm.emergency && <Pressable accessibilityRole="button" onPress={() => setTab('Car')} style={[styles.emergencyBanner, { marginTop: insets.top + 8 }]}>
       <Icon name="alert" color="#FF868D" /><View style={{ flex: 1 }}><Text style={[styles.rowTitle, styles.onRed]}>Emergency at the car</Text><Text style={[styles.small, styles.onRed]}>Go to the car now · View alert</Text></View><Icon name="arrow" color="#FFF5E9" />
     </Pressable>}
-    <ScrollView key={tab} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingTop: tab !== 'Car' && vm.emergency ? 20 : insets.top + 18 }]}>
+    <ScrollView key={tab} scrollEventThrottle={100} onScroll={event => { const { contentOffset, layoutMeasurement } = event.nativeEvent; const b = carBounds.current; setCarVisible(contentOffset.y < b.y + b.height && contentOffset.y + layoutMeasurement.height > b.y); }} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingTop: tab !== 'Car' && vm.emergency ? 20 : insets.top + 18 }]}>
       {tab === 'Insights' ? <HeatInsights /> : tab === 'Feed' ? <Activity actions={actions} history={data.entries} carConnected={vm.online} /> : tab === 'Contacts' ? <Contacts resource={contacts} locked={vm.emergency || vm.lostAlarm} /> : <>
         <Brand />
+        {!vm.emergency ? <CabinHome vm={vm} lastHeard={lastHeard} visible={carVisible && !launchVisible} onLayout={event => { carBounds.current = event.nativeEvent.layout; }} /> : <>
         <View style={styles.row}>
           <View style={{ gap: 5 }}><Text style={vm.emergency ? [styles.sectionLabel, styles.onRed] : styles.title}>{vm.emergency ? 'FAMILY CAR' : 'Family car'}</Text>{!vm.emergency && <Text style={styles.muted}>{vm.heard}</Text>}</View>
           <View style={[styles.carIcon, vm.emergency && { backgroundColor: '#FFFFFF15', borderColor: '#FFFFFF20' }]}><Icon name="car" color={vm.emergency ? '#FFFFFF' : palette.muted} size={22} /></View>
@@ -207,6 +191,8 @@ function EchoApp() {
             : !vm.online ? lastHeard ? `As of ${lastHeard} · may be higher now` : 'Waiting for the box to connect.' : status.state === 'IDLE' ? 'Monitoring the car' : vm.rising ? 'Car is off · temperature is rising' : 'Car is off · monitoring temperature'}</Text>
           {!vm.online && status && <Text style={styles.muted}>Last alert: {status.state}</Text>}
         </View>
+        </>}
+        {!vm.emergency && !vm.lostAlarm && <LatestActivity actions={actions} history={data.entries} onOpen={() => setTab('Feed')} />}
         {vm.emergency ? <>
           <Chart entries={data.entries} status={status} online={vm.online} />
           <View style={styles.actions}>
@@ -216,18 +202,16 @@ function EchoApp() {
           </View>
         </> : <View style={styles.homeFooter}>
           {vm.online ? <>
-            <View style={styles.sensors}>{sensorReadings(status).map((reading, index) => <View key={reading.label} style={[styles.sensor, index > 0 && styles.sensorDivider]}>
-              <Icon name="seat" size={18} color={palette.muted} /><Text style={styles.sensorValue}>{reading.value}</Text><Text style={styles.sensorLabel}>{reading.label}</Text>
-            </View>)}</View>
             <Notice title="Stay close" icon="shield">If you left the car, go back now. The box sounds its own alarm if the cabin gets hot.</Notice>
           </> : vm.lostAlarm ? <>
             <Notice urgent title={lostAlarmCopy(status, lastHeard).title} icon="alert">{lostAlarmCopy(status, lastHeard).body}</Notice>
             <ActionButton icon="phone" onPress={() => dial(() => emergencyPhone(config))}>{config.demoCalls ? 'Open demo dialer' : 'Call 911'}</ActionButton>
           </> : <>
-            <Notice title="Connection lost. Check the car." icon="offline">The box may have lost Wi-Fi. Its own alarm still works at the car.</Notice>
+            <Notice title={status ? "Connection lost. Check the car." : "Waiting for the first reading"} icon="offline">{status ? "The box may have lost Wi-Fi. Its own alarm still works at the car." : "Keep the box powered and connected. Readings will appear automatically."}</Notice>
           </>}
           {!!ackNote && <Text accessibilityRole="alert" style={[styles.body, emergencyScreen && styles.onRed]}>{ackNote}</Text>}
         </View>}
+        {!vm.emergency && <>{vm.lostAlarm && <LatestActivity actions={actions} history={data.entries} onOpen={() => setTab('Feed')} />}<Chart entries={data.entries} status={status} online={vm.online} /></>}
         {!!note && <Text accessibilityRole="alert" style={[styles.body, emergencyScreen && styles.onRed]}>{note}</Text>}
         {!config.serverUrl && <Text style={styles.small}>The server connection isn’t configured.</Text>}
         <View style={styles.safetyLine}><Icon name="shield" size={13} color={emergencyScreen ? '#F6F1F2' : palette.muted} /><Text style={[styles.safetyText, emergencyScreen && { color: '#F6F1F2' }]}>Only the button on the box can stop the alarm.</Text></View>
@@ -244,7 +228,7 @@ const styles = StyleSheet.create({
   content: { flexGrow: 1, paddingHorizontal: 22, paddingBottom: 20, gap: 18, width: '100%', maxWidth: 560, alignSelf: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, inline: { flexDirection: 'row', alignItems: 'center', gap: 7 }, center: { textAlign: 'center' },
   title: { fontFamily: 'Outfit', fontSize: 32, letterSpacing: -1, color: palette.text }, subtitle: { fontFamily: 'Manrope', fontSize: 14, lineHeight: 22, color: palette.muted },
-  body: { fontFamily: 'Manrope', fontSize: 14, lineHeight: 22, color: palette.text }, small: { fontFamily: 'Manrope', fontSize: 10, lineHeight: 16, color: palette.muted }, muted: { fontFamily: 'Manrope', fontSize: 11, lineHeight: 17, color: palette.muted },
+  body: { fontFamily: 'Manrope', fontSize: 14, lineHeight: 22, color: palette.text }, small: { fontFamily: 'Manrope', fontSize: 12, lineHeight: 18, color: palette.muted }, muted: { fontFamily: 'Manrope', fontSize: 12, lineHeight: 18, color: palette.muted },
   sectionLabel: { fontFamily: 'Outfit', fontSize: 10, letterSpacing: 1.8, color: palette.muted }, pageHeading: { gap: 12, marginTop: 12, marginBottom: 16 },
   carIcon: { width: 44, height: 44, borderRadius: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.line, justifyContent: 'center', alignItems: 'center' },
   hero: { justifyContent: 'center', alignItems: 'center', flexGrow: 1, minHeight: 295, gap: 10, paddingVertical: 24 }, emergencyHero: { minHeight: 245, flexGrow: 0, paddingVertical: 6, gap: 8 },
