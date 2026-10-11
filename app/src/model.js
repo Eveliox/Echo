@@ -15,16 +15,6 @@ export function viewModel(snapshot, connected, now = Date.now(), receivedAt = nu
     minutes: status?.minsToDanger == null ? '—' : String(status.minsToDanger),
     rising: online && status.minsToDanger !== null && status.minsToDanger > 0 };
 }
-// The Car screen's notice while the box is out of contact at WARNING or EMERGENCY.
-export function lostAlarmCopy(status, lastHeard) {
-  return {
-    title: `${lastHeard ? `No updates since ${lastHeard}` : 'No updates'} · last alert ${status.state}`,
-    body: 'The box alarms on its own without Wi-Fi. Go to the car now.',
-  };
-}
-export function emergencyCopy(status) {
-  return status?.presence ? 'An occupied seat. Dangerous heat. Go to the car now.' : 'Dangerous heat. Go to the car now.';
-}
 export function serverUrl(value) {
   const url = new URL(value);
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Use the laptop HTTP address and port only.');
@@ -52,13 +42,6 @@ export function heatCurve(entries, status, online, width = 300, height = 140) {
   const x = time => (time - start) / Math.max(1, end - start) * width;
   const points = values.map(e => ({ x: x(e.receivedAt), y: y(e.status.tempF) }));
   return { points, samples: points.map((p, i) => ({ ...p, time: values[i].receivedAt, tempF: values[i].status.tempF })), ticks: [high, (high + low) / 2, low], dangerY: y(DANGER_F), forecast: forecastMinutes === null ? null : { from: points.at(-1), to: { x: width, y: y(DANGER_F) }, label: `+${forecastMinutes} min` } };
-}
-
-// Secondary telemetry stays literal; an unplugged sensor is unknown, not absent.
-export function sensorReadings(status) {
-  return [
-    { label: 'Seat', value: status.presence == null ? '—' : status.presence ? 'Yes' : 'No' },
-  ];
 }
 
 // Contacts a parent types in (Contacts tab). The server checks them again

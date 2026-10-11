@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { AccessibilityInfo, Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Defs, Line, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
+import React from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import Svg, { Defs, LinearGradient, Path, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 // The Echo logo's gradient, top to bottom. Brand only: alert levels keep
 // their own colors (model.js COLORS, the red Car screen) so EMERGENCY still
@@ -44,39 +44,6 @@ export function Icon({ name, size = 22, color = palette.text }) {
 export function Brand() {
   return <View style={s.brandRow}><Image source={require('../assets/echo-logo.png')} accessibilityLabel="Echo" resizeMode="contain" style={s.logo} /></View>;
 }
-export function StatusLabel({ label, color, live = false }) {
-  const [opacity] = useState(() => new Animated.Value(1));
-  const [reduceMotion, setReduceMotion] = useState(true);
-  useEffect(() => {
-    let mounted = true;
-    AccessibilityInfo.isReduceMotionEnabled().then(value => { if (mounted) setReduceMotion(value); }).catch(() => {});
-    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
-    return () => { mounted = false; subscription.remove(); };
-  }, []);
-  useEffect(() => {
-    opacity.setValue(1);
-    if (!live || reduceMotion) return;
-    const animation = Animated.loop(Animated.sequence([
-      Animated.timing(opacity, { toValue: 0.35, duration: 1200, useNativeDriver: true, isInteraction: false }),
-      Animated.timing(opacity, { toValue: 1, duration: 1200, useNativeDriver: true, isInteraction: false }),
-    ]));
-    animation.start();
-    return () => { animation.stop(); };
-  }, [live, reduceMotion, opacity]);
-  return <View style={s.statusLabel}><Animated.View style={[s.dot, { backgroundColor: color, opacity }]} /><Text style={[s.statusText, { color }]}>{label}</Text></View>;
-}
-export function Halo({ color }) {
-  return <View pointerEvents="none" accessible={false} style={StyleSheet.absoluteFill}>
-    <Svg width="100%" height="100%" viewBox="0 0 340 280">
-      <Defs><RadialGradient id="halo"><Stop offset="0" stopColor={color} stopOpacity="0.15" /><Stop offset="1" stopColor={color} stopOpacity="0" /></RadialGradient></Defs>
-      <Rect width="340" height="280" fill="url(#halo)" />
-      <Circle cx="170" cy="140" r="123" stroke={color} strokeOpacity="0.11" strokeWidth="1" fill="none" />
-      <Circle cx="170" cy="140" r="138" stroke={color} strokeOpacity="0.05" strokeWidth="1" fill="none" />
-      <Line x1="170" x2="170" y1="10" y2="17" stroke={color} strokeOpacity="0.3" />
-      <Line x1="170" x2="170" y1="263" y2="270" stroke={color} strokeOpacity="0.3" />
-    </Svg>
-  </View>;
-}
 export function ActionButton({ children, onPress, secondary = false, disabled = false, icon = 'arrow', emergency = false }) {
   return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [s.button, secondary && s.secondary, emergency && { backgroundColor: secondary ? '#FFFFFF0C' : '#FFF5E9', borderColor: '#FFFFFF88' }, disabled && s.disabled, pressed && { transform: [{ scale: 0.985 }], opacity: 0.85 }]}>
     <Icon name={icon} size={20} color={emergency ? secondary ? '#FFF5E9' : '#6A1720' : secondary ? palette.text : '#FFF5E9'} /><Text style={[s.buttonText, secondary && { color: palette.text }, emergency && { color: secondary ? '#FFF5E9' : '#6A1720' }]}>{children}</Text>
@@ -103,7 +70,6 @@ export function AccentRule() {
 }
 const s = StyleSheet.create({
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 8 }, logo: { width: 92, height: 34 },
-  statusLabel: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingVertical: 7, alignSelf: 'center' }, dot: { width: 5, height: 5, borderRadius: 3 }, statusText: { fontFamily: 'Outfit', fontSize: 12, letterSpacing: 1.2 },
   button: { minHeight: 58, borderRadius: 18, padding: 16, backgroundColor: logo.magenta, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10 },
   secondary: { backgroundColor: '#FFF3CD26', borderWidth: 1, borderColor: '#35231555' }, disabled: { opacity: 0.65 }, buttonText: { fontFamily: 'Outfit', fontSize: 17, color: '#FFF5E9', flexShrink: 1 },
   notice: { borderColor: palette.line, borderTopWidth: 1, paddingVertical: 18, flexDirection: 'row', gap: 12 }, noticeIcon: { paddingTop: 1 }, noticeTitle: { fontFamily: 'Outfit', color: palette.text, fontSize: 14 }, noticeText: { fontFamily: 'Manrope', fontSize: 12, lineHeight: 19, color: palette.muted },

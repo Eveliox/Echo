@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { viewModel as makeView, sensorReadings, emergencyCopy, lostAlarmCopy, heatCurve, DANGER_F, emergencyPhone, phoneUrl, serverUrl } from '../src/model.js';
+import { viewModel as makeView, heatCurve, DANGER_F, emergencyPhone, phoneUrl, serverUrl } from '../src/model.js';
 import { poll, request } from '../src/client.js';
 const viewModel = (snapshot, connected, now) => makeView(snapshot, connected, now, 1000);
 const status = { state: 'EMERGENCY', tempF: 101.23, presence: true, minsToDanger: 3.75 };
@@ -73,18 +73,6 @@ test('laptop clock skew never suppresses a fresh emergency; local receipt expiry
     assert.equal(makeView({ ...snapshot, lastSeen }, true, 11000, 1000).online, false);
   }
 });
-test('latched emergency with an empty seat does not claim occupancy', () => {
-  assert.match(emergencyCopy(status), /occupied seat/);
-  assert.doesNotMatch(emergencyCopy({ ...status, presence: false }), /occupied/);
-});
-
-test('sensor row shows the seat and distinguishes an unknown seat from an empty one', () => {
-  assert.deepEqual(sensorReadings({ presence: true }), [{ label: 'Seat', value: 'Yes' }]);
-  assert.deepEqual(sensorReadings({ presence: false }).map(r => r.value), ['No']);
-  assert.deepEqual(sensorReadings({}).map(r => r.value), ['—']);
-  // An old-firmware status still carrying humidity, motion, or battery shows only the seat.
-  assert.deepEqual(sensorReadings({ presence: true, motion: null, humidity: 41, battery: 88 }).map(r => r.label), ['Seat']);
-});
 test('losing the box at WARNING or EMERGENCY stays an alarm; lower levels do not', () => {
   for (const state of ['WARNING', 'EMERGENCY']) {
     const s2 = { ...status, state };
@@ -95,8 +83,4 @@ test('losing the box at WARNING or EMERGENCY stays an alarm; lower levels do not
   }
   for (const state of ['IDLE', 'ARMED', 'OCCUPANT']) assert.equal(viewModel({ ...snapshot, status: { ...status, state } }, false, 2000).lostAlarm, false, state);
   assert.equal(viewModel(null, false, 2000).lostAlarm, false, 'no reading yet');
-});
-test('lost-alarm copy names the last alert and when the box was last heard', () => {
-  assert.deepEqual(lostAlarmCopy({ state: 'EMERGENCY' }, '10:42:03 AM'), { title: 'No updates since 10:42:03 AM · last alert EMERGENCY', body: 'The box alarms on its own without Wi-Fi. Go to the car now.' });
-  assert.equal(lostAlarmCopy({ state: 'WARNING' }, null).title, 'No updates · last alert WARNING');
 });

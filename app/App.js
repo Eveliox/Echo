@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Linking, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { AppState, Linking, Pressable, ScrollView, StatusBar, StyleSheet, Text, Vibration, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
@@ -8,7 +8,8 @@ import { HeatInsights } from './src/HeatInsights';
 import { ContactsEditor } from './src/ContactsEditor';
 import { CabinHome, CabinReadings, LatestActivity, ParentStatus } from './src/CabinHome';
 import { Chart } from './src/Chart';
-import { sceneVisible } from './src/home';
+import { CountdownRing } from './src/HeatMotion';
+import { alertVibration, sceneVisible } from './src/home';
 import { config } from './config';
 import { poll, readResource, request } from './src/client';
 import { activityRows, activityTime } from './src/activity';
@@ -143,6 +144,12 @@ function EchoApp() {
     return () => { stopped = true; clearInterval(timer); subscription.remove(); };
   }, []);
   const vm = viewModel(data.snapshot, connected, now, data.receivedAt);
+  const wasEmergency = useRef(false);
+  useEffect(() => {
+    const pattern = alertVibration(wasEmergency.current, vm.emergency);
+    if (pattern) Vibration.vibrate(pattern);
+    wasEmergency.current = vm.emergency;
+  }, [vm.emergency]);
   const dial = async number => {
     try { await Linking.openURL(number()); }
     catch (error) { setNote(error.message || 'Could not open the phone dialer.'); }
@@ -175,7 +182,7 @@ function EchoApp() {
       {tab === 'Insights' ? <HeatInsights /> : tab === 'Feed' ? <Activity actions={actions} history={data.entries} carConnected={vm.online} /> : tab === 'Contacts' ? <Contacts resource={contacts} locked={vm.emergency || vm.lostAlarm} /> : <>
         <View style={vm.emergency ? styles.emergencyBrand : undefined}><Brand /></View>
         <ParentStatus vm={vm} lastHeard={lastHeard} />
-        {vm.emergency && <View style={styles.emergencyReadings}><CabinReadings vm={vm} /></View>}
+        {vm.emergency && <View style={styles.countdown}><CountdownRing minutes={vm.status.minsToDanger} /></View>}
         {(vm.emergency || vm.lostAlarm) && <View style={styles.actions}>
           {vm.emergency && <>
             <ActionButton emergency icon={now < sentUntil ? 'check' : 'arrow'} onPress={acknowledge} disabled={sending || now < sentUntil}>{sending ? 'Sending…' : now < sentUntil ? 'Message sent' : "I'm on my way"}</ActionButton>
@@ -184,14 +191,15 @@ function EchoApp() {
           {!!ackNote && <Text accessibilityRole="alert" style={[styles.body, emergencyScreen && styles.onRed]}>{ackNote}</Text>}
           <ActionButton emergency={vm.emergency} icon="phone" secondary={vm.emergency} onPress={() => dial(() => emergencyPhone(config))}>{config.demoCalls ? 'Open demo dialer' : 'Call 911'}</ActionButton>
         </View>}
+        {vm.emergency && <View style={styles.emergencyReadings}><CabinReadings vm={vm} showEstimate={false} /></View>}
         {!vm.emergency && <CabinHome vm={vm} visible={carVisible && !launchVisible} onSceneLayout={bounds => { carBounds.current = bounds; setCarVisible(sceneVisible(bounds, viewport.current.offset, viewport.current.height)); }} />}
         <LatestActivity emergency={vm.emergency} actions={actions} history={data.entries} onOpen={() => setTab('Feed')} />
-        <View style={styles.historySection}>
+        {vm.emergency ? <Chart entries={data.entries} status={status} online={vm.online} /> : <View style={styles.historySection}>
           <Pressable accessibilityRole="button" accessibilityState={{ expanded: showChart }} onPress={() => setShowChart(value => !value)} style={({ pressed }) => [styles.historyToggle, pressed && { opacity: .65 }]}>
             <View style={styles.inline}><Icon name="activity" size={21} /><Text style={styles.rowTitle}>Temperature history</Text></View><Text style={styles.body}>{showChart ? '−' : '+'}</Text>
           </Pressable>
           {showChart && <Chart entries={data.entries} status={status} online={vm.online} />}
-        </View>
+        </View>}
         {!vm.emergency && <ActionButton secondary icon="contacts" onPress={() => setTab('Contacts')}>Your emergency contacts</ActionButton>}
         {!!note && <Text accessibilityRole="alert" style={[styles.body, emergencyScreen && styles.onRed]}>{note}</Text>}
         {!config.serverUrl && <Text style={styles.small}>Connect Echo to start receiving readings.</Text>}
@@ -205,6 +213,7 @@ function EchoApp() {
 }
 const styles = StyleSheet.create({
   emergencyBrand: { alignSelf: 'flex-start', padding: 8, paddingBottom: 0, backgroundColor: palette.ground, borderRadius: 12 },
+  countdown: { alignItems: 'center' },
   emergencyReadings: { backgroundColor: '#F8EAD5', padding: 16, borderRadius: 18 },
   historySection: { backgroundColor: '#F8EAD5', borderRadius: 18, overflow: 'hidden' },
   historyToggle: { minHeight: 56, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -214,19 +223,13 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, inline: { flexDirection: 'row', alignItems: 'center', gap: 7 }, center: { textAlign: 'center' },
   title: { fontFamily: 'Outfit', fontSize: 32, letterSpacing: -1, color: palette.text }, subtitle: { fontFamily: 'Manrope', fontSize: 14, lineHeight: 22, color: palette.muted },
   body: { fontFamily: 'Manrope', fontSize: 14, lineHeight: 22, color: palette.text }, small: { fontFamily: 'Manrope', fontSize: 12, lineHeight: 18, color: palette.muted }, muted: { fontFamily: 'Manrope', fontSize: 12, lineHeight: 18, color: palette.muted },
-  sectionLabel: { fontFamily: 'Outfit', fontSize: 10, letterSpacing: 1.8, color: palette.muted }, pageHeading: { gap: 12, marginTop: 12, marginBottom: 16 },
-  carIcon: { width: 44, height: 44, borderRadius: 16, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.line, justifyContent: 'center', alignItems: 'center' },
-  hero: { justifyContent: 'center', alignItems: 'center', flexGrow: 1, minHeight: 295, gap: 10, paddingVertical: 24 }, emergencyHero: { minHeight: 245, flexGrow: 0, paddingVertical: 6, gap: 8 },
-  metricLabel: { fontFamily: 'Manrope', fontSize: 9, letterSpacing: 2.2, color: palette.muted, marginTop: 8 },
-  numberRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', width: '100%', gap: 7 }, number: { fontFamily: 'Doto', fontSize: 100, letterSpacing: -4, color: palette.text, flexShrink: 1 }, dangerNumber: { fontSize: 115 }, unit: { fontFamily: 'Outfit', fontSize: 24, color: palette.text },
-  heroCaption: { fontFamily: 'Outfit', fontSize: 14, color: palette.text, flexShrink: 1, textAlign: 'center' }, heroDetail: { fontFamily: 'Manrope', fontSize: 11, lineHeight: 18, color: palette.muted },
-  homeFooter: { gap: 14 }, sensors: { flexDirection: 'row', borderWidth: 1, borderColor: palette.line, backgroundColor: palette.surface, borderRadius: 22, paddingVertical: 18 }, sensor: { flex: 1, alignItems: 'center', gap: 8, paddingHorizontal: 3 }, sensorDivider: { borderLeftWidth: 1, borderColor: palette.line }, sensorValue: { fontFamily: 'Outfit', fontSize: 18, color: palette.text }, sensorLabel: { fontFamily: 'Manrope', fontSize: 9, color: palette.muted },
-  chartCard: { backgroundColor: '#510B1728', borderWidth: 1, borderColor: '#FFFFFF20', borderRadius: 22, padding: 16 }, chartEmpty: { position: 'absolute', top: 56, alignSelf: 'center', fontFamily: 'Manrope', fontSize: 12, color: palette.text }, actions: { gap: 10 },
-  safetyLine: { flexDirection: 'row', gap: 6, justifyContent: 'center', alignItems: 'center', paddingTop: 3 }, safetyText: { fontFamily: 'Manrope', fontSize: 9, lineHeight: 15, color: palette.muted, flexShrink: 1 },
+  sectionLabel: { fontFamily: 'Outfit', fontSize: 12, letterSpacing: 1.6, color: palette.muted }, pageHeading: { gap: 12, marginTop: 12, marginBottom: 16 },
+  actions: { gap: 10 },
+  safetyLine: { flexDirection: 'row', gap: 8, justifyContent: 'center', alignItems: 'center', paddingTop: 3 }, safetyText: { fontFamily: 'Manrope', fontSize: 14, lineHeight: 20, color: palette.muted, flexShrink: 1 },
   emergencyBanner: { marginHorizontal: 22, flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#36131B', borderWidth: 1, borderColor: '#E5202E60', borderRadius: 18, padding: 16 },
   rowTitle: { fontFamily: 'Outfit', color: palette.text, fontSize: 17 }, activityRow: { flexDirection: 'row', gap: 13 }, timeline: { width: 9, alignItems: 'center', paddingTop: 25 }, timelineDot: { width: 7, height: 7, borderRadius: 4 }, timelineLine: { flex: 1, width: 1, backgroundColor: palette.line, marginTop: 9, marginBottom: 2 },
-  activityCard: { flex: 1, borderBottomWidth: 1, borderColor: palette.line, paddingVertical: 16, paddingHorizontal: 2, marginBottom: 12, gap: 10 }, latestCard: { borderColor: '#E0306A40' }, sourceLabel: { fontFamily: 'Outfit', fontSize: 9, letterSpacing: 1.1 }, time: { fontFamily: 'Manrope', fontSize: 10, color: palette.muted }, reason: { fontFamily: 'Manrope', fontSize: 12, lineHeight: 19, color: palette.muted },
+  activityCard: { flex: 1, borderBottomWidth: 1, borderColor: palette.line, paddingVertical: 16, paddingHorizontal: 2, marginBottom: 12, gap: 10 }, latestCard: { borderColor: '#E0306A40' }, sourceLabel: { fontFamily: 'Outfit', fontSize: 12, letterSpacing: 1.1 }, time: { fontFamily: 'Manrope', fontSize: 12, color: palette.muted }, reason: { fontFamily: 'Manrope', fontSize: 13, lineHeight: 20, color: palette.muted },
   emptyState: { alignItems: 'center', paddingVertical: 60, gap: 15 }, emptyIcon: { width: 72, height: 72, borderRadius: 26, backgroundColor: '#FFF3CD40', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
-  contactList: { gap: 14, marginBottom: 8 }, contactCard: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.line, borderRadius: 24, padding: 20, gap: 22 }, firstContact: { borderColor: '#E0306A40' }, contactOrder: { fontFamily: 'Outfit', fontSize: 10, letterSpacing: 1.5, color: palette.muted }, firstTag: { fontFamily: 'Outfit', fontSize: 8, letterSpacing: 0.8, color: palette.brand },
+  contactList: { gap: 14, marginBottom: 8 }, contactCard: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.line, borderRadius: 24, padding: 20, gap: 22 }, firstContact: { borderColor: '#E0306A40' }, contactOrder: { fontFamily: 'Outfit', fontSize: 12, letterSpacing: 1.4, color: palette.muted }, firstTag: { fontFamily: 'Outfit', fontSize: 12, letterSpacing: 0.8, color: palette.brand },
   contactPerson: { flexDirection: 'row', alignItems: 'center', gap: 14 }, avatar: { width: 50, height: 50, borderRadius: 18, backgroundColor: '#FFF3CD55', alignItems: 'center', justifyContent: 'center' }, initial: { fontFamily: 'Doto', fontSize: 27, color: palette.text }, contactName: { fontFamily: 'Outfit', fontSize: 24, color: palette.text, flex: 1 },
 });

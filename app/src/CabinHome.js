@@ -2,7 +2,7 @@ import React, { useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { CabinCar } from './CabinCar';
 import { AccentRule, Icon, palette } from './ui';
-import { dangerEstimate, homeStatus, parentGuidance } from './home';
+import { dangerEstimate, homeStatus, parentGuidance, seatLabel } from './home';
 import { activityRows, activityTime } from './activity';
 
 export function ParentStatus({ vm, lastHeard }) {
@@ -17,15 +17,16 @@ export function ParentStatus({ vm, lastHeard }) {
   </View>
  </View>;
 }
-export function CabinReadings({ vm }) {
+// The red Live alert screen shows the estimate in the CountdownRing instead.
+export function CabinReadings({ vm, showEstimate = true }) {
  const status = vm.status;
  const estimate = dangerEstimate(vm);
  return <View style={s.readings}>
   <View style={s.metrics}>
    <View style={s.metric}><Text style={s.label}>Cabin temperature</Text><Text numberOfLines={1} adjustsFontSizeToFit style={s.value}>{status?.tempF ?? '—'}<Text style={s.unit}> °F</Text></Text></View>
-   <View style={[s.metric, s.seatMetric]}><Text style={s.label}>Seat occupancy</Text><Text style={s.seat}>{status?.presence == null ? 'Unknown' : status.presence ? 'Occupied' : 'Not detected'}</Text></View>
+   <View style={[s.metric, s.seatMetric]}><Text style={s.label}>Seat occupancy</Text><Text style={s.seat}>{seatLabel(status?.presence)}</Text></View>
   </View>
-  <View style={s.estimate}><Icon name="clock" size={17} color={palette.muted} /><Text style={s.estimateLabel}>{estimate.label}</Text><Text style={s.estimateValue}>{estimate.value}</Text></View>
+  {showEstimate && <View style={s.estimate}><Icon name="clock" size={17} color={palette.muted} /><Text style={s.estimateLabel}>{estimate.label}</Text><Text style={s.estimateValue}>{estimate.value}</Text></View>}
   {!vm.online && status && <Text style={s.stale}>These readings are out of date. Conditions may have changed.</Text>}
  </View>;
 }

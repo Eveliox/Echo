@@ -47,11 +47,11 @@ export function ContactsEditor({ names, onDone }) {
 
 const styles = StyleSheet.create({
   editor: { gap: 14 },
-  label: { fontFamily: 'Outfit', fontSize: 10, letterSpacing: 1.8, color: palette.muted, marginTop: 4 },
-  help: { fontFamily: 'Manrope', fontSize: 12, lineHeight: 19, color: palette.muted },
+  label: { fontFamily: 'Outfit', fontSize: 12, letterSpacing: 1.6, color: palette.muted, marginTop: 4 },
+  help: { fontFamily: 'Manrope', fontSize: 13, lineHeight: 20, color: palette.muted },
   card: { backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.line, borderRadius: 24, padding: 18, gap: 12 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  order: { fontFamily: 'Outfit', fontSize: 10, letterSpacing: 1.5, color: palette.muted },
+  order: { fontFamily: 'Outfit', fontSize: 12, letterSpacing: 1.4, color: palette.muted },
   remove: { fontFamily: 'Manrope', fontSize: 13, color: palette.brand },
   input: { fontFamily: 'Manrope', fontSize: 17, color: palette.text, backgroundColor: palette.raised, borderWidth: 1, borderColor: palette.line, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, minHeight: 50 },
 });

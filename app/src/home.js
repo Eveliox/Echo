@@ -18,9 +18,30 @@ export function parentGuidance(vm) {
  return { urgent: false, title: 'Before you leave the car', detail: 'Check the back seat and take your child with you.' };
 }
 
+// An unplugged or missing seat sensor is unknown, never an empty seat.
+export function seatLabel(presence) {
+ return presence == null ? 'Unknown' : presence ? 'Occupied' : 'Not detected';
+}
+
 export function dangerEstimate(vm) {
  const value = vm.status?.minsToDanger;
  return { label: vm.online ? 'Estimated time to dangerous heat' : 'Last recorded heat estimate', value: value == null ? 'No estimate' : value === 0 ? 'Danger level reached' : `${value} min` };
+}
+
+// The Live alert countdown shows the box's minsToDanger exactly as sent.
+// The phone never counts down on its own between readings.
+export function countdownView(minutes) {
+ if (!Number.isFinite(minutes) || minutes < 0) return { label: 'NO ESTIMATE', value: '—', unit: '', spoken: 'No danger estimate from the box' };
+ if (minutes === 0) return { label: 'DANGER REACHED', value: '0', unit: 'min', spoken: 'Danger level reached, reported by the box' };
+ return { label: 'DANGER IN', value: String(minutes), unit: 'min', spoken: `${minutes} minutes to danger, reported by the box` };
+}
+
+// Android: wait, buzz, wait, buzz… iOS: gaps between fixed-length buzzes.
+export const ALERT_VIBRATION = [0, 500, 300, 500, 300, 500];
+// Buzz once each time the app sees a live emergency start (including on
+// returning to the app mid-emergency). Vibration only adds alerting.
+export function alertVibration(wasEmergency, emergency) {
+ return emergency && !wasEmergency ? ALERT_VIBRATION : null;
 }
 
 export function carMotionAllowed({ online, visible, active, reduced, paused, emergency }) {

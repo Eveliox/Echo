@@ -56,6 +56,37 @@ test('parent-facing estimates retain zero, exact decimals, null and stale labels
  assert.equal(dangerEstimate({online:true,status:{minsToDanger:null}}).value,'No estimate');
  assert.equal(dangerEstimate({online:false,status:null}).value,'No estimate');
 });
+test('Live alert countdown shows the box value as sent, including zero, decimals and no estimate', async () => {
+ const { countdownView } = await import('../src/home.js');
+ assert.deepEqual(countdownView(7.5), { label: 'DANGER IN', value: '7.5', unit: 'min', spoken: '7.5 minutes to danger, reported by the box' });
+ assert.equal(countdownView(12).value, '12');
+ assert.equal(countdownView(0).label, 'DANGER REACHED');
+ assert.equal(countdownView(0).value, '0');
+ for (const missing of [null, undefined, NaN, -1]) {
+  assert.equal(countdownView(missing).value, '—');
+  assert.equal(countdownView(missing).label, 'NO ESTIMATE');
+ }
+});
+test('seat reading distinguishes unknown from empty and never claims occupancy without a reading', async () => {
+ const { seatLabel } = await import('../src/home.js');
+ assert.equal(seatLabel(true), 'Occupied');
+ assert.equal(seatLabel(false), 'Not detected');
+ assert.equal(seatLabel(null), 'Unknown');
+ assert.equal(seatLabel(undefined), 'Unknown');
+});
+test('the phone vibrates only when a live emergency starts', async () => {
+ const { alertVibration, ALERT_VIBRATION } = await import('../src/home.js');
+ assert.deepEqual(alertVibration(false, true), ALERT_VIBRATION);
+ assert.equal(alertVibration(true, true), null, 'no repeat every poll');
+ assert.equal(alertVibration(true, false), null);
+ assert.equal(alertVibration(false, false), null);
+ // A lost connection at EMERGENCY leaves vm.emergency false; a reconnect buzzes again.
+ const { viewModel } = await import('../src/model.js');
+ const snapshot = { online: true, lastSeen: 1000, status: { state: 'EMERGENCY', tempF: 105, presence: true, minsToDanger: 0 } };
+ const lost = viewModel(snapshot, false, 2000, 1000), live = viewModel(snapshot, true, 2000, 1000);
+ assert.equal(alertVibration(false, lost.emergency), null);
+ assert.deepEqual(alertVibration(lost.emergency, live.emergency), ALERT_VIBRATION);
+});
 test('model visibility pauses outside the viewport and at exact edges', async () => {
  const {sceneVisible,carMotionAllowed:motion}=await import('../src/home.js');
  const b={y:300,height:230};
