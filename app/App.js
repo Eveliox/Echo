@@ -50,12 +50,19 @@ function useResource(path) {
   }, [path]);
   return resource;
 }
-function Activity({ actions, history, carConnected }) {
+function Activity({ actions, history, carConnected, status, showChart, onToggleChart, onShowAll, onTimelineLayout }) {
   const rows = activityRows(actions.entries, history);
   return <>
     <Brand />
     <View style={styles.pageHeading}><AccentRule /><Text style={styles.title}>Activity</Text><Text style={styles.subtitle}>Calls and updates from your car.</Text></View>
-    <View style={styles.row}><Text style={styles.sectionLabel}>YOUR TIMELINE</Text><Text style={styles.muted}>{rows.length} records</Text></View>
+    <LatestActivity actions={actions} history={history} onOpen={onShowAll} />
+    <View style={styles.historySection}>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: showChart }} onPress={onToggleChart} style={({ pressed }) => [styles.historyToggle, pressed && { opacity: .65 }]}>
+        <View style={styles.inline}><Icon name="activity" size={21} /><Text style={styles.rowTitle}>Temperature history</Text></View><Text style={styles.body}>{showChart ? '−' : '+'}</Text>
+      </Pressable>
+      {showChart && <Chart entries={history} status={status} online={carConnected} />}
+    </View>
+    <View onLayout={event => onTimelineLayout(event.nativeEvent.layout.y)} style={styles.row}><Text style={styles.sectionLabel}>YOUR TIMELINE</Text><Text style={styles.muted}>{rows.length} records</Text></View>
     {actions.state === 'loading' && <Notice icon="clock">Loading activity…</Notice>}
     {actions.state === 'unavailable' && <Notice icon="offline" title="Updates paused">Showing saved records until Echo reconnects.</Notice>}
     {!carConnected && history.length > 0 && <Text style={styles.muted}>Box changes are from the last received history.</Text>}
@@ -110,6 +117,8 @@ function EchoApp() {
   const setTab = name => { viewport.current.offset = 0; setCarVisible(true); setTabState(name); };
   const carBounds = useRef({ y: 0, height: 600 });
   const viewport = useRef({ offset: 0, height: 1000 });
+  const scroller = useRef(null);
+  const timelineY = useRef(0);
   const [launchDone, setLaunchDone] = useState(false);
   const actions = useResource('/actions');
   const contacts = useResource('/contacts');
@@ -178,8 +187,8 @@ function EchoApp() {
     {tab !== 'Car' && vm.emergency && <Pressable accessibilityRole="button" onPress={() => setTab('Car')} style={[styles.emergencyBanner, { marginTop: insets.top + 8 }]}>
       <Icon name="alert" color="#FF868D" /><View style={{ flex: 1 }}><Text style={[styles.rowTitle, styles.onRed]}>Emergency at the car</Text><Text style={[styles.small, styles.onRed]}>Go to the car now · View alert</Text></View><Icon name="arrow" color="#FFF5E9" />
     </Pressable>}
-    <ScrollView key={tab} scrollEventThrottle={100} onScroll={event => { const { contentOffset, layoutMeasurement } = event.nativeEvent; viewport.current = { offset: contentOffset.y, height: layoutMeasurement.height }; setCarVisible(sceneVisible(carBounds.current, contentOffset.y, layoutMeasurement.height)); }} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingTop: tab !== 'Car' && vm.emergency ? 20 : insets.top + 18 }]}>
-      {tab === 'Insights' ? <HeatInsights /> : tab === 'Feed' ? <Activity actions={actions} history={data.entries} carConnected={vm.online} /> : tab === 'Contacts' ? <Contacts resource={contacts} locked={vm.emergency || vm.lostAlarm} /> : <>
+    <ScrollView ref={scroller} key={tab} scrollEventThrottle={100} onScroll={event => { const { contentOffset, layoutMeasurement } = event.nativeEvent; viewport.current = { offset: contentOffset.y, height: layoutMeasurement.height }; setCarVisible(sceneVisible(carBounds.current, contentOffset.y, layoutMeasurement.height)); }} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingTop: tab !== 'Car' && vm.emergency ? 20 : insets.top + 18 }]}>
+      {tab === 'Insights' ? <HeatInsights /> : tab === 'Feed' ? <Activity actions={actions} history={data.entries} carConnected={vm.online} status={status} showChart={showChart} onToggleChart={() => setShowChart(value => !value)} onShowAll={() => scroller.current?.scrollTo({ y: timelineY.current, animated: true })} onTimelineLayout={y => { timelineY.current = y; }} /> : tab === 'Contacts' ? <Contacts resource={contacts} locked={vm.emergency || vm.lostAlarm} /> : <>
         <View style={vm.emergency ? styles.emergencyBrand : undefined}><Brand /></View>
         <ParentStatus vm={vm} lastHeard={lastHeard} />
         {vm.emergency && <View style={styles.countdown}><CountdownRing minutes={vm.status.minsToDanger} /></View>}
@@ -193,13 +202,9 @@ function EchoApp() {
         </View>}
         {vm.emergency && <View style={styles.emergencyReadings}><CabinReadings vm={vm} showEstimate={false} /></View>}
         {!vm.emergency && <CabinHome vm={vm} visible={carVisible && !launchVisible} onSceneLayout={bounds => { carBounds.current = bounds; setCarVisible(sceneVisible(bounds, viewport.current.offset, viewport.current.height)); }} />}
-        <LatestActivity emergency={vm.emergency} actions={actions} history={data.entries} onOpen={() => setTab('Feed')} />
-        {vm.emergency ? <Chart entries={data.entries} status={status} online={vm.online} /> : <View style={styles.historySection}>
-          <Pressable accessibilityRole="button" accessibilityState={{ expanded: showChart }} onPress={() => setShowChart(value => !value)} style={({ pressed }) => [styles.historyToggle, pressed && { opacity: .65 }]}>
-            <View style={styles.inline}><Icon name="activity" size={21} /><Text style={styles.rowTitle}>Temperature history</Text></View><Text style={styles.body}>{showChart ? '−' : '+'}</Text>
-          </Pressable>
-          {showChart && <Chart entries={data.entries} status={status} online={vm.online} />}
-        </View>}
+        {/* The red Live alert screen keeps its latest update and live chart; the calm Home shows only the car and contacts. */}
+        {vm.emergency && <LatestActivity emergency actions={actions} history={data.entries} onOpen={() => setTab('Feed')} />}
+        {vm.emergency && <Chart entries={data.entries} status={status} online={vm.online} />}
         {!vm.emergency && <ActionButton secondary icon="contacts" onPress={() => setTab('Contacts')}>Your emergency contacts</ActionButton>}
         {!!note && <Text accessibilityRole="alert" style={[styles.body, emergencyScreen && styles.onRed]}>{note}</Text>}
         {!config.serverUrl && <Text style={styles.small}>Connect Echo to start receiving readings.</Text>}
