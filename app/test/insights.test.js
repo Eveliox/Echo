@@ -41,7 +41,8 @@ test('the committed app/assets/insights.json validates and its label matches its
   const view = insightsView(committed);
   assert.equal(view.ok, true);
   assert.equal(view.label, committed.real === false ? NOT_REAL_LABEL : null);
-  assert.equal(view.note !== null, committed.source === 'design example');
+  // The design example and a forecast carry a note (forecasts: "never leave a child"); heat-test results don't.
+  assert.equal(view.note !== null, ['design example', 'databricks forecast'].includes(committed.source));
 });
 
 const starter = {
