@@ -102,7 +102,7 @@ The alert-level logic and minutes-to-danger math live in `firmware/mega/logic.h`
 | --- | --- | --- | --- |
 | IDLE | Ignition jumper plugged in | Blue solid | Silent |
 | ARMED | Ignition pulled out | Blue blinking | Silent |
-| OCCUPANT | Armed and seat occupied for 30 s | Yellow blinking | Short chirp every 5 s |
+| OCCUPANT | Armed and seat occupied (no extra wait beyond the seat detection rule below, except the cancel grace in "Leaving a level") | Yellow blinking | Short chirp every 5 s |
 | WARNING | Occupant and 95°F (35°C) or more, or 10 min or less to danger | Yellow solid | Beep every second |
 | EMERGENCY | Occupant and 104°F (40°C) or more, or 5 min or less to danger | Red flashing | Siren sweep 600–1200 Hz |
 
@@ -112,6 +112,7 @@ Colors as `analogWrite` values (R, G, B): blue (0, 0, 255), yellow (255, 120, 0)
 
 - Levels only climb on their own. Once WARNING or EMERGENCY starts, it stays even if the temperature drops or the seat reads empty.
 - Only the cancel button or the ignition clears an alarm. Cancel returns to ARMED; plugging the ignition back in returns to IDLE. Nothing sent over Wi-Fi can silence it.
+- After cancel, the box stays ARMED while the button is held and for 10 s after it is released, even if the seat reads occupied. If the seat still reads occupied 10 s after release, it re-alarms (OCCUPANT, then WARNING or EMERGENCY at once if the heat calls for it). Pressing cancel again restarts the 10 s; the ignition ends the grace.
 
 **Seat detection:** at power-up, with the seat empty, the Mega measures the seat distance 20 times and stores the average as the baseline. The seat counts as occupied when the median of 5 pings is 40 cm or less, or at least 10 cm shorter than the baseline, three readings in a row. The 40 cm rule works even when the baseline is missing or was taken with something near the sensor, so mount the sensor where the empty seat reads more than 40 cm; otherwise the seat reads occupied all the time.
 

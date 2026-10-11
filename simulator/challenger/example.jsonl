@@ -1,6 +1,6 @@
 # Example for `node simulator/challenger.js --from simulator/challenger/example.jsonl`.
 # Shows every outcome: 2 pass, 1 FAIL (its expected is wrong on purpose), 1 invalid.
-{"name":"example: occupied 30 s","presence":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],"tempF":[80,80,80,80,80,80,80,80,80,80,80,80,80,80,80,80],"expected":"OCCUPANT"}
+{"name":"example: occupied from the first period","presence":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],"tempF":[80,80,80,80,80,80,80,80,80,80,80,80,80,80,80,80],"expected":"OCCUPANT"}
 {"name":"example: empty seat at 110F","presence":[false,false,false,false],"tempF":[110,110,110,110],"expected":"ARMED"}
 {"name":"example: wrong expected on purpose","presence":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],"tempF":[80,80,80,80,80,80,80,80,80,80,80,80,80,80,80,80,96],"expected":"EMERGENCY"}
 {"name":"example: invalid, lengths differ","presence":[1,1],"tempF":[80],"expected":"ARMED"}

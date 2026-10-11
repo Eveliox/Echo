@@ -1,5 +1,5 @@
 # synthetic recording, not a hardware capture: built by hand to follow the level rules in docs/firmware.md "Firmware behavior"
-# box on 2 minutes in IDLE (one sample per line), ignition pulled (ARMED), child placed in the seat, held to OCCUPANT, cabin heats to WARNING and EMERGENCY
+# box on 2 minutes in IDLE (one sample per line), ignition pulled (ARMED), child placed in the seat (OCCUPANT on the first occupied line), cabin heats to WARNING and EMERGENCY
 # minsToDanger, and the WARNING/EMERGENCY lines it starts early, follow the "Minutes to danger" formula from tempF; simulator/test/recording.test.js checks them
 {"state":"IDLE","tempF":80.4,"presence":false,"distanceCm":62,"minsToDanger":null}
 {"state":"IDLE","tempF":80.2,"presence":false,"distanceCm":63,"minsToDanger":null}
@@ -70,21 +70,21 @@
 {"state":"ARMED","tempF":80.3,"presence":false,"distanceCm":62,"minsToDanger":null}
 {"state":"ARMED","tempF":80.2,"presence":false,"distanceCm":37,"minsToDanger":null}
 {"state":"ARMED","tempF":80.4,"presence":false,"distanceCm":38,"minsToDanger":null}
-{"state":"ARMED","tempF":80.5,"presence":true,"distanceCm":37,"minsToDanger":null}
-{"state":"ARMED","tempF":80.8,"presence":true,"distanceCm":38,"minsToDanger":null}
-{"state":"ARMED","tempF":81.3,"presence":true,"distanceCm":39,"minsToDanger":345.6}
-{"state":"ARMED","tempF":81.1,"presence":true,"distanceCm":37,"minsToDanger":222.1}
-{"state":"ARMED","tempF":81.6,"presence":true,"distanceCm":38,"minsToDanger":145.7}
-{"state":"ARMED","tempF":81.8,"presence":true,"distanceCm":39,"minsToDanger":102.3}
-{"state":"ARMED","tempF":82.0,"presence":true,"distanceCm":37,"minsToDanger":73.9}
-{"state":"ARMED","tempF":82.4,"presence":true,"distanceCm":38,"minsToDanger":55.3}
-{"state":"ARMED","tempF":82.5,"presence":true,"distanceCm":39,"minsToDanger":45.3}
-{"state":"ARMED","tempF":82.8,"presence":true,"distanceCm":37,"minsToDanger":36.9}
-{"state":"ARMED","tempF":83.3,"presence":true,"distanceCm":38,"minsToDanger":29.3}
-{"state":"ARMED","tempF":83.1,"presence":true,"distanceCm":39,"minsToDanger":25.6}
-{"state":"ARMED","tempF":83.6,"presence":true,"distanceCm":37,"minsToDanger":21.7}
-{"state":"ARMED","tempF":83.8,"presence":true,"distanceCm":38,"minsToDanger":18.9}
-{"state":"ARMED","tempF":84.0,"presence":true,"distanceCm":39,"minsToDanger":16.5}
+{"state":"OCCUPANT","tempF":80.5,"presence":true,"distanceCm":37,"minsToDanger":null}
+{"state":"OCCUPANT","tempF":80.8,"presence":true,"distanceCm":38,"minsToDanger":null}
+{"state":"OCCUPANT","tempF":81.3,"presence":true,"distanceCm":39,"minsToDanger":345.6}
+{"state":"OCCUPANT","tempF":81.1,"presence":true,"distanceCm":37,"minsToDanger":222.1}
+{"state":"OCCUPANT","tempF":81.6,"presence":true,"distanceCm":38,"minsToDanger":145.7}
+{"state":"OCCUPANT","tempF":81.8,"presence":true,"distanceCm":39,"minsToDanger":102.3}
+{"state":"OCCUPANT","tempF":82.0,"presence":true,"distanceCm":37,"minsToDanger":73.9}
+{"state":"OCCUPANT","tempF":82.4,"presence":true,"distanceCm":38,"minsToDanger":55.3}
+{"state":"OCCUPANT","tempF":82.5,"presence":true,"distanceCm":39,"minsToDanger":45.3}
+{"state":"OCCUPANT","tempF":82.8,"presence":true,"distanceCm":37,"minsToDanger":36.9}
+{"state":"OCCUPANT","tempF":83.3,"presence":true,"distanceCm":38,"minsToDanger":29.3}
+{"state":"OCCUPANT","tempF":83.1,"presence":true,"distanceCm":39,"minsToDanger":25.6}
+{"state":"OCCUPANT","tempF":83.6,"presence":true,"distanceCm":37,"minsToDanger":21.7}
+{"state":"OCCUPANT","tempF":83.8,"presence":true,"distanceCm":38,"minsToDanger":18.9}
+{"state":"OCCUPANT","tempF":84.0,"presence":true,"distanceCm":39,"minsToDanger":16.5}
 {"state":"OCCUPANT","tempF":84.1,"presence":true,"distanceCm":37,"minsToDanger":14.7}
 {"state":"OCCUPANT","tempF":85.3,"presence":true,"distanceCm":38,"minsToDanger":12.2}
 {"state":"WARNING","tempF":86.5,"presence":true,"distanceCm":39,"minsToDanger":9.9}

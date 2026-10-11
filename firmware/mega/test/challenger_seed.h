@@ -22,20 +22,20 @@ struct ChallengerSeed {
 };
 
 static const ChallengerSeed CHALLENGER_SEEDS[] = {
-    // 20 periods. level table: OCCUPANT needs the seat occupied for 30 s; WARNING/EMERGENCY need OCCUPANT first. Never occupied, so 110F still stays ARMED.
+    // 20 periods. level table: OCCUPANT needs the seat occupied; WARNING/EMERGENCY need OCCUPANT first. Never occupied, so 110F still stays ARMED.
     {"empty seat, hot cabin", "ARMED",
      "0000000000"
      "0000000000",
      "110,110,110,110,110,110,110,110,110,110,110,110,"
      "110,110,110,110,110,110,110,110"},
-    // 15 periods. level table: OCCUPANT is "seat occupied for 30 s"; 15 periods occupied span 0..28 s.
-    {"occupied 28 s, under the dwell", "ARMED",
-     "1111111111"
-     "11111",
+    // 15 periods. level table: OCCUPANT is "Armed and seat occupied", no dwell; one occupied period (the last) is enough.
+    {"occupied only in the last period", "OCCUPANT",
+     "0000000000"
+     "00001",
      "80,80,80,80,80,80,80,80,80,80,80,80,"
      "80,80,80"},
-    // 19 periods. level table: "Armed and seat occupied for 30 s"; occupied from 6 s to 36 s.
-    {"occupied exactly 30 s after empty start", "OCCUPANT",
+    // 19 periods. level table: "Armed and seat occupied"; ARMED while empty, OCCUPANT from 6 s on.
+    {"occupied after an empty start", "OCCUPANT",
      "0001111111"
      "111111111",
      "80,80,80,80,80,80,80,80,80,80,80,80,"
@@ -115,8 +115,8 @@ static const ChallengerSeed CHALLENGER_SEEDS[] = {
      "80,80,80,80,80,80,80,80,80,80,80,80,"
      "80,80,80,80,80,80,80,80,80,80,80,80,"
      "80,80"},
-    // 21 periods. level table: "occupied for 30 s" means without a break; 18 s, one empty period, then 18 s.
-    {"brief seat blip restarts the dwell", "ARMED",
+    // 21 periods. level table: OCCUPANT on the first occupied period; "Leaving a level" (logic.h pins OCCUPANT as sticky), so one empty period between does not lower it.
+    {"brief seat blip after occupant", "OCCUPANT",
      "1111111111"
      "0111111111"
      "1",
@@ -128,8 +128,8 @@ static const ChallengerSeed CHALLENGER_SEEDS[] = {
      "1111111111",
      "80,80,80,80,80,80,80,80,80,80,80,80,"
      "80,80,80,80,80,80,80,80"},
-    // 20 periods. level table: OCCUPANT after 30 s, and "Occupant and 95F or more" -> WARNING in that same period.
-    {"already hot when the dwell ends", "WARNING",
+    // 20 periods. level table: OCCUPANT on the first occupied period, and "Occupant and 95F or more" -> WARNING in that same period; minutes to danger is null with under 60 samples.
+    {"already hot when the seat fills", "WARNING",
      "1111111111"
      "1111111111",
      "100,100,100,100,100,100,100,100,100,100,100,100,"

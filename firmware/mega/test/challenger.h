@@ -8,7 +8,7 @@
 // Mapping (ticket #22):
 // - Element i is status period i, at nowMs = i * STATUS_PERIOD_MS.
 // - Ignition is off and cancel is not pressed at every step, so the very
-//   first step moves IDLE -> ARMED (and may start the seat dwell timer).
+//   first step moves IDLE -> ARMED (and on to OCCUPANT if presence[0] is 1).
 // - presence[i] is AlertInputs.seatOccupied.
 // - tempF[i] is added to a TempHistory, then minsToDanger comes from
 //   tempHistoryMinsToDanger, the same order as the sketch and the recording

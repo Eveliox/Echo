@@ -16,7 +16,6 @@ function parseConstant(source, name) {
 }
 const logic = readFileSync(new URL('../../firmware/mega/logic.h', import.meta.url), 'utf8');
 const constant = (name) => parseConstant(logic, name);
-const OCCUPANT_AFTER_MS = constant('OCCUPANT_AFTER_MS');
 const STATUS_PERIOD_MS = constant('STATUS_PERIOD_MS');
 const WARNING_TEMP_F = constant('WARNING_TEMP_F');
 const EMERGENCY_TEMP_F = constant('EMERGENCY_TEMP_F');
@@ -99,13 +98,13 @@ test('levels never drop and climb IDLE, ARMED, OCCUPANT, WARNING, EMERGENCY in o
   assert.equal(statuses[0].state, 'IDLE');
 });
 
-test('OCCUPANT comes only after the seat has been occupied for the hold time', () => {
+test('OCCUPANT starts on the first status with the seat occupied while ARMED, no dwell', () => {
   const occupant = firstOf('OCCUPANT');
-  let firstPresent = occupant;
-  while (firstPresent > 0 && statuses[firstPresent - 1].presence) firstPresent--;
+  const firstPresent = statuses.findIndex((s) => s.presence);
+  assert.ok(firstPresent > 0);
+  assert.equal(statuses[firstPresent - 1].state, 'ARMED', 'ARMED with the seat empty just before');
+  assert.equal(occupant, firstPresent, 'OCCUPANT on the very first occupied status');
   assert.ok(statuses.slice(0, firstPresent).every((s) => !s.presence));
-  assert.ok((occupant - firstPresent) * STATUS_PERIOD_MS >= OCCUPANT_AFTER_MS,
-    `seat occupied for ${occupant - firstPresent} statuses before OCCUPANT`);
   assert.ok(statuses.slice(firstPresent).every((s) => s.presence), 'the seat stays occupied');
 });
 

@@ -327,7 +327,7 @@ static void test_seat_new_baseline_resets_state() {
 // Pins the values in docs/firmware.md "Firmware behavior" with literals, so a
 // changed constant fails here instead of silently moving every other test.
 static void test_alert_constants_match_doc() {
-  CHECK(OCCUPANT_AFTER_MS == 30000UL);
+  CHECK(CANCEL_GRACE_MS == 10000UL);
   CHECK(WARNING_TEMP_F == 95.0f);
   CHECK(EMERGENCY_TEMP_F == 104.0f);
 }
@@ -345,13 +345,11 @@ static AlertInputs carOff(bool occupied, float tempF, uint32_t nowMs) {
   return in;
 }
 
-// Ignition off, seat occupied long enough: ends in OCCUPANT at time `t`.
+// Ignition off, seat occupied: ends in OCCUPANT at time `t`.
 static uint32_t reachOccupant(AlertState &s, uint32_t start = 0) {
   alertInit(s);
   alertStep(s, carOff(true, COOL_F, start));
-  uint32_t t = start + OCCUPANT_AFTER_MS;
-  alertStep(s, carOff(true, COOL_F, t));
-  return t;
+  return start;
 }
 
 static void test_starts_idle_and_ignition_on_stays_idle() {
@@ -371,40 +369,48 @@ static void test_ignition_off_arms() {
   CHECK_LEVEL(alertStep(s, carOff(false, COOL_F, 0)), LEVEL_ARMED);
 }
 
-static void test_occupant_needs_seat_occupied_for_dwell() {
+// No dwell: the first occupied step while ARMED is OCCUPANT.
+static void test_occupied_seat_while_armed_is_occupant_same_step() {
   AlertState s;
   alertInit(s);
-  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 1000)), LEVEL_ARMED);
-  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 1000 + OCCUPANT_AFTER_MS - 1)),
-              LEVEL_ARMED);
-  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 1000 + OCCUPANT_AFTER_MS)),
-              LEVEL_OCCUPANT);
+  CHECK_LEVEL(alertStep(s, carOff(false, COOL_F, 1000)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 3000)), LEVEL_OCCUPANT);
+
+  // Ignition off with the seat already occupied: IDLE -> OCCUPANT in one step.
+  alertInit(s);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 0)), LEVEL_OCCUPANT);
 }
 
-static void test_empty_seat_while_armed_restarts_dwell() {
+static void test_empty_seat_stays_armed() {
   AlertState s;
   alertInit(s);
-  alertStep(s, carOff(true, COOL_F, 0));
-  alertStep(s, carOff(false, COOL_F, OCCUPANT_AFTER_MS - 2000));
-  alertStep(s, carOff(true, COOL_F, OCCUPANT_AFTER_MS - 1000));
-  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, OCCUPANT_AFTER_MS)), LEVEL_ARMED);
-  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 2 * OCCUPANT_AFTER_MS - 1000)),
-              LEVEL_OCCUPANT);
+  for (uint32_t t = 0; t <= 600000; t += 2000) {
+    CHECK_LEVEL(alertStep(s, carOff(false, COOL_F, t)), LEVEL_ARMED);
+  }
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 602000)), LEVEL_OCCUPANT);
 }
 
-static void test_dwell_survives_millis_wraparound() {
+// Ignition on: an occupied seat never reaches OCCUPANT, and ignition still
+// clears OCCUPANT reached on the very first occupied step.
+static void test_ignition_on_with_occupied_seat_never_occupant() {
   AlertState s;
-  uint32_t start = 0xFFFFFFFFUL - 5000;
-  reachOccupant(s, start);
-  CHECK_LEVEL(s.level, LEVEL_OCCUPANT);
+  alertInit(s);
+  AlertInputs in = carOff(true, COOL_F, 0);
+  in.ignitionOn = true;
+  for (uint32_t t = 0; t <= 60000; t += 2000) {
+    in.nowMs = t;
+    CHECK_LEVEL(alertStep(s, in), LEVEL_IDLE);
+  }
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, 62000)), LEVEL_OCCUPANT);
+  in.nowMs = 64000;
+  CHECK_LEVEL(alertStep(s, in), LEVEL_IDLE);
 }
 
 static void test_heat_without_occupant_does_not_alarm() {
   AlertState s;
   alertInit(s);
   CHECK_LEVEL(alertStep(s, carOff(false, 120.0f, 0)), LEVEL_ARMED);
-  CHECK_LEVEL(alertStep(s, carOff(false, 120.0f, 10 * OCCUPANT_AFTER_MS)),
-              LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(false, 120.0f, 300000)), LEVEL_ARMED);
 }
 
 static void test_occupant_to_warning_to_emergency() {
@@ -470,16 +476,105 @@ static void test_cancel_returns_to_armed_from_every_alarm_level() {
   }
 }
 
-static void test_after_cancel_occupied_seat_needs_full_dwell_again() {
-  AlertState s;
-  uint32_t t = reachOccupant(s);
-  alertStep(s, carOff(true, EMERGENCY_TEMP_F, t += 2000));
-  AlertInputs in = carOff(true, EMERGENCY_TEMP_F, t += 2000);
+// Cancel at `t` (held for one step), from OCCUPANT reached with `tempF`.
+static uint32_t cancelFromOccupant(AlertState &s, float tempF, uint32_t start = 0) {
+  uint32_t t = reachOccupant(s, start);
+  alertStep(s, carOff(true, tempF, t += 2000));
+  AlertInputs in = carOff(true, tempF, t += 2000);
   in.cancelPressed = true;
-  alertStep(s, in);
-  CHECK_LEVEL(alertStep(s, carOff(true, EMERGENCY_TEMP_F, t += 2000)), LEVEL_ARMED);
-  CHECK_LEVEL(alertStep(s, carOff(true, EMERGENCY_TEMP_F, t + OCCUPANT_AFTER_MS)),
+  CHECK_LEVEL(alertStep(s, in), LEVEL_ARMED);
+  return t;
+}
+
+// After cancel the box stays ARMED for the grace period from the last held
+// step, even with the seat occupied; then it is OCCUPANT again.
+static void test_cancel_grace_cool_seat_occupied() {
+  AlertState s;
+  uint32_t t = cancelFromOccupant(s, COOL_F);
+  AlertInputs in = carOff(true, COOL_F, t + 1000);
+  in.cancelPressed = true;
+  CHECK_LEVEL(alertStep(s, in), LEVEL_ARMED);  // still held
+  t += 1000;
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + 1)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + 5000)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + CANCEL_GRACE_MS - 1)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + CANCEL_GRACE_MS)), LEVEL_OCCUPANT);
+}
+
+static void test_cancel_grace_hot_seat_occupied() {
+  AlertState s;
+  uint32_t t = cancelFromOccupant(s, EMERGENCY_TEMP_F);
+  for (uint32_t d = 1; d < CANCEL_GRACE_MS; d += 250) {
+    CHECK_LEVEL(alertStep(s, carOff(true, EMERGENCY_TEMP_F, t + d)), LEVEL_ARMED);
+  }
+  CHECK_LEVEL(alertStep(s, carOff(true, EMERGENCY_TEMP_F, t + CANCEL_GRACE_MS - 1)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, EMERGENCY_TEMP_F, t + CANCEL_GRACE_MS)),
               LEVEL_EMERGENCY);
+}
+
+static void test_cancel_grace_seat_empties() {
+  AlertState s;
+  uint32_t t = cancelFromOccupant(s, EMERGENCY_TEMP_F);
+  CHECK_LEVEL(alertStep(s, carOff(false, EMERGENCY_TEMP_F, t + 2000)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(false, EMERGENCY_TEMP_F, t + CANCEL_GRACE_MS)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(false, EMERGENCY_TEMP_F, t + 60000)), LEVEL_ARMED);
+  // A later occupied reading, past the grace, alarms again right away.
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + 62000)), LEVEL_OCCUPANT);
+}
+
+static void test_cancel_grace_restarts_on_new_press() {
+  AlertState s;
+  uint32_t t = cancelFromOccupant(s, COOL_F);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + 6000)), LEVEL_ARMED);
+  AlertInputs in = carOff(true, COOL_F, t + 8000);
+  in.cancelPressed = true;
+  CHECK_LEVEL(alertStep(s, in), LEVEL_ARMED);
+  t += 8000;
+  // Past the first grace but inside the new one.
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + 3000)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + CANCEL_GRACE_MS - 1)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + CANCEL_GRACE_MS)), LEVEL_OCCUPANT);
+}
+
+static void test_cancel_grace_ignition_clears_it() {
+  AlertState s;
+  uint32_t t = cancelFromOccupant(s, COOL_F);
+  AlertInputs in = carOff(true, EMERGENCY_TEMP_F, t + 2000);
+  in.ignitionOn = true;
+  CHECK_LEVEL(alertStep(s, in), LEVEL_IDLE);
+  // Ignition off again inside what was the grace window: no leftover grace.
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + 4000)), LEVEL_OCCUPANT);
+}
+
+static void test_cancel_grace_survives_millis_wraparound() {
+  AlertState s;
+  uint32_t start = 0xFFFFFFFFUL - 6000;
+  uint32_t t = cancelFromOccupant(s, COOL_F, start);  // held at 0xFFFFFFFF - 2000
+  CHECK(t == 0xFFFFFFFFUL - 2000);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + 1000)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + 3000)), LEVEL_ARMED);  // wrapped
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + CANCEL_GRACE_MS - 1)), LEVEL_ARMED);
+  CHECK_LEVEL(alertStep(s, carOff(true, COOL_F, t + CANCEL_GRACE_MS)), LEVEL_OCCUPANT);
+}
+
+// The seat detector and the level logic together: with no dwell, the seat's
+// readings-in-a-row rule is the only filter before OCCUPANT.
+static void test_seat_readings_in_a_row_gate_occupant() {
+  SeatDetector seat = seatWithBaseline(EMPTY_CM);
+  AlertState s;
+  alertInit(s);
+  float pings[SEAT_PINGS_PER_READING];
+  uint32_t t = 0;
+  fill(pings, SEAT_PINGS_PER_READING, EMPTY_CM);
+  seatUpdate(seat, pings);
+  CHECK_LEVEL(alertStep(s, carOff(seat.occupied, COOL_F, t)), LEVEL_ARMED);
+  fill(pings, SEAT_PINGS_PER_READING, OCCUPIED_CM);
+  for (int i = 1; i < SEAT_READINGS_IN_A_ROW; i++) {
+    seatUpdate(seat, pings);
+    CHECK_LEVEL(alertStep(s, carOff(seat.occupied, COOL_F, t += 2000)), LEVEL_ARMED);
+  }
+  seatUpdate(seat, pings);
+  CHECK_LEVEL(alertStep(s, carOff(seat.occupied, COOL_F, t += 2000)), LEVEL_OCCUPANT);
 }
 
 static void test_ignition_on_returns_to_idle_from_every_level() {
@@ -1071,15 +1166,15 @@ static void test_mins_only_from_occupant_up() {
   AlertInputs in = carOffMins(COOL_F, 1.0f, 0);
   in.ignitionOn = true;
   CHECK_LEVEL(alertStep(s, in), LEVEL_IDLE);
-  // Armed, seat empty or not yet held long enough: minutes don't matter.
-  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 1.0f, 2000)), LEVEL_ARMED);
-  AlertInputs empty = carOffMins(COOL_F, 0.0f, 4000);
+  // Armed, seat empty: minutes don't matter.
+  AlertInputs empty = carOffMins(COOL_F, 1.0f, 2000);
   empty.seatOccupied = false;
   CHECK_LEVEL(alertStep(s, empty), LEVEL_ARMED);
-  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 1.0f, 6000)), LEVEL_ARMED);
-  // Once the hold is done, the same step goes straight up.
-  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 1.0f, 6000 + OCCUPANT_AFTER_MS)),
-              LEVEL_EMERGENCY);
+  empty = carOffMins(COOL_F, 0.0f, 4000);
+  empty.seatOccupied = false;
+  CHECK_LEVEL(alertStep(s, empty), LEVEL_ARMED);
+  // First occupied step: OCCUPANT, and the same step goes straight up.
+  CHECK_LEVEL(alertStep(s, carOffMins(COOL_F, 1.0f, 6000)), LEVEL_EMERGENCY);
 }
 
 static void test_mins_levels_still_only_climb() {
@@ -1318,28 +1413,17 @@ static void test_challenger_parse_line_and_mapping() {
   CHECK(!sc.presence[0] && sc.presence[1]);
   CHECK(sc.tempF[0] == 80.0f && sc.tempF[1] == 81.5f);
 
-  // Ignition off from the first element: IDLE -> ARMED at step 0. The seat
-  // dwell runs on 2 s periods: occupied from step 0, OCCUPANT at the step
-  // OCCUPANT_AFTER_MS later, not one step sooner.
-  char line[256];
-  char presence[64];
-  char temps[160];
-  int dwellSteps = (int)(OCCUPANT_AFTER_MS / STATUS_PERIOD_MS);
-  CHECK(dwellSteps + 1 < (int)sizeof presence);
-  for (int i = 0; i <= dwellSteps; i++) presence[i] = '1';
-  presence[dwellSteps + 1] = '\0';
-  temps[0] = '\0';
-  for (int i = 0; i <= dwellSteps; i++) strcat(temps, i == 0 ? "70" : ",70");
-  snprintf(line, sizeof line, "dwell\tOCCUPANT\t%s\t%s", presence, temps);
-  CHECK(challengerParseLine(sc, line) == NULL);
+  // Ignition off from the first element: IDLE -> ARMED at step 0. No seat
+  // dwell: empty at step 0, OCCUPANT at the first occupied step.
+  CHECK(challengerParseLine(sc, "seat\tOCCUPANT\t011\t70,70,70") == NULL);
   ChallengerResult r = challengerRun(sc);
   CHECK(r.firstStep[LEVEL_IDLE] == -1);
   CHECK(r.firstStep[LEVEL_ARMED] == 0);
-  CHECK(r.firstStep[LEVEL_OCCUPANT] == dwellSteps);
+  CHECK(r.firstStep[LEVEL_OCCUPANT] == 1);
   CHECK(r.finalLevel == LEVEL_OCCUPANT);
   CHECK(isnan(r.lastMinsToDanger));
 
-  sc.steps = (uint16_t)dwellSteps;  // one period short of the dwell
+  sc.steps = 1;  // stops before the seat is occupied
   CHECK(challengerRun(sc).finalLevel == LEVEL_ARMED);
 }
 
@@ -2075,9 +2159,9 @@ int main() {
   test_alert_constants_match_doc();
   test_starts_idle_and_ignition_on_stays_idle();
   test_ignition_off_arms();
-  test_occupant_needs_seat_occupied_for_dwell();
-  test_empty_seat_while_armed_restarts_dwell();
-  test_dwell_survives_millis_wraparound();
+  test_occupied_seat_while_armed_is_occupant_same_step();
+  test_empty_seat_stays_armed();
+  test_ignition_on_with_occupied_seat_never_occupant();
   test_heat_without_occupant_does_not_alarm();
   test_occupant_to_warning_to_emergency();
   test_occupant_jumps_straight_to_emergency();
@@ -2086,7 +2170,13 @@ int main() {
   test_emergency_stays_when_cooling_or_seat_empty();
   test_occupant_stays_when_seat_empty();
   test_cancel_returns_to_armed_from_every_alarm_level();
-  test_after_cancel_occupied_seat_needs_full_dwell_again();
+  test_cancel_grace_cool_seat_occupied();
+  test_cancel_grace_hot_seat_occupied();
+  test_cancel_grace_seat_empties();
+  test_cancel_grace_restarts_on_new_press();
+  test_cancel_grace_ignition_clears_it();
+  test_cancel_grace_survives_millis_wraparound();
+  test_seat_readings_in_a_row_gate_occupant();
   test_ignition_on_returns_to_idle_from_every_level();
   test_ignition_beats_cancel();
   test_timing_constants_match_doc();

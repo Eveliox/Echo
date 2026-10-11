@@ -141,7 +141,7 @@ export function buildPrompt({ section, count, limits }) {
     '- tempF[i] is the LM35 cabin reading for that period, in degrees F. Minutes to danger is computed from these readings exactly as the doc describes.',
     '- "expected" is the alert level after the LAST element, one of IDLE, ARMED, OCCUPANT, WARNING, EMERGENCY.',
     `- presence and tempF have the same length, 1 to ${limits.maxSteps} elements; tempF values between ${limits.minTempF} and ${limits.maxTempF}.`,
-    `Write ${count} scenarios. Favor adversarial and edge cases: values right at and just past each threshold, the seat dwell one period short and exactly met,`,
+    `Write ${count} scenarios. Favor adversarial and edge cases: values right at and just past each threshold, the seat turning occupied on the last period,`,
     'seat flicker, cooling or an emptied seat after an alarm, fast and slow warming (minutes to danger needs a full window of readings), heat before the seat counts,',
     'sensor-like noise, long and short scenarios. Give each a short unique descriptive name.',
     'Answer with JSON only: an array of objects { "name": string, "presence": [booleans], "tempF": [numbers], "expected": string }. No prose, no code fences.',

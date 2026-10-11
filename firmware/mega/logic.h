@@ -214,7 +214,8 @@ inline float tempHistoryMinsToDanger(const TempHistory &h, float currentF) {
 // ---------------------------------------------------------------------------
 // Alert levels (level table and "Leaving a level" in docs/firmware.md,
 // "Firmware behavior"). WARNING and EMERGENCY enter on temperature or on
-// minutes to danger, whichever comes first.
+// minutes to danger, whichever comes first. The grace period after a cancel
+// is in "Leaving a level"; it runs from the last step cancel was held.
 //
 // Decisions not in the doc (pinned by tests in test/logic_test.cpp):
 // - OCCUPANT is sticky like WARNING and EMERGENCY: an empty seat never lowers it.
@@ -223,7 +224,7 @@ inline float tempHistoryMinsToDanger(const TempHistory &h, float currentF) {
 // - Unknown minutes to danger (NaN or negative) never raises a level.
 // ---------------------------------------------------------------------------
 
-static const uint32_t OCCUPANT_AFTER_MS = 30000UL;
+static const uint32_t CANCEL_GRACE_MS = 10000UL;
 static const float WARNING_TEMP_F = 95.0f;
 static const float EMERGENCY_TEMP_F = 104.0f;
 static const float WARNING_MINS = 10.0f;
@@ -244,19 +245,19 @@ struct AlertInputs {
   bool seatOccupied;   // seat-detection result
   float tempF;         // cabin temperature; NaN never raises a level
   float minsToDanger;  // tempHistoryMinsToDanger; NaN or negative never raises a level
-  uint32_t nowMs;      // millis(); wraparound is handled
+  uint32_t nowMs;      // millis(); times the cancel grace, wraparound is handled
 };
 
 struct AlertState {
   AlertLevel level;
-  bool seatTimerRunning;
-  uint32_t occupiedSinceMs;
+  bool cancelGrace;          // released cancel, grace not over yet
+  uint32_t cancelLastHeldMs; // last step cancel was held
 };
 
 inline void alertInit(AlertState &s) {
   s.level = LEVEL_IDLE;
-  s.seatTimerRunning = false;
-  s.occupiedSinceMs = 0;
+  s.cancelGrace = false;
+  s.cancelLastHeldMs = 0;
 }
 
 inline const char *alertLevelName(AlertLevel level) {
@@ -281,12 +282,13 @@ inline bool minsKnownAtMost(float mins, float limit) {
 inline AlertLevel alertStep(AlertState &s, const AlertInputs &in) {
   if (in.ignitionOn) {
     s.level = LEVEL_IDLE;
-    s.seatTimerRunning = false;
+    s.cancelGrace = false;
     return s.level;
   }
   if (in.cancelPressed) {
     s.level = LEVEL_ARMED;
-    s.seatTimerRunning = false;
+    s.cancelGrace = true;
+    s.cancelLastHeldMs = in.nowMs;
     return s.level;
   }
 
@@ -294,19 +296,14 @@ inline AlertLevel alertStep(AlertState &s, const AlertInputs &in) {
     s.level = LEVEL_ARMED;
   }
 
-  if (s.level == LEVEL_ARMED) {
-    if (!in.seatOccupied) {
-      s.seatTimerRunning = false;
-    } else {
-      if (!s.seatTimerRunning) {
-        s.seatTimerRunning = true;
-        s.occupiedSinceMs = in.nowMs;
-      }
-      if ((uint32_t)(in.nowMs - s.occupiedSinceMs) >= OCCUPANT_AFTER_MS) {
-        s.level = LEVEL_OCCUPANT;
-        s.seatTimerRunning = false;
-      }
-    }
+  if (s.cancelGrace && (uint32_t)(in.nowMs - s.cancelLastHeldMs) >= CANCEL_GRACE_MS) {
+    s.cancelGrace = false;
+  }
+
+  // No dwell: outside a cancel grace, the seat detector's own
+  // readings-in-a-row rule is the only wait.
+  if (s.level == LEVEL_ARMED && in.seatOccupied && !s.cancelGrace) {
+    s.level = LEVEL_OCCUPANT;
   }
 
   // From OCCUPANT up, the seat no longer matters; only heat climbs the level.
