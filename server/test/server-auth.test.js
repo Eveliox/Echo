@@ -11,7 +11,7 @@ const TOKEN = 'box-token-7f3a9c';
 const WRONG = 'wrong-token-value-1234';
 
 const status = (overrides = {}) => ({
-  state: 'OCCUPANT', tempF: 88.2, humidity: 40, presence: true, distanceCm: 30,
+  state: 'OCCUPANT', tempF: 88.2, presence: true, distanceCm: 30,
   motion: null, minsToDanger: null, battery: null, ...overrides,
 });
 

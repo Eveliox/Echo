@@ -38,12 +38,6 @@ function WarmingBars() {
   </Svg>;
 }
 
-function HumidityDots({ share }) {
-  return <Svg width="100%" height="54" viewBox="0 0 140 54" accessible={false}>
-    {Array.from({ length: 36 }, (_, i) => <Circle key={i} cx={15 + (i % 12) * 10} cy={12 + Math.floor(i / 12) * 15} r={i % 5 === 0 ? 3 : 2} fill={ink} fillOpacity={i < Math.round(share * 36) ? 0.65 : 0.13} />)}
-  </Svg>;
-}
-
 export function HeatInsights() {
   const [selected, setSelected] = useState(1);
   if (!view.ok) return <>
@@ -75,10 +69,9 @@ export function HeatInsights() {
     </View>
     <View style={s.cards}>
       <View style={s.card}><Text style={s.cardTitle}>Warming</Text><Text style={s.caption}>{view.inputsCaption}</Text><Text adjustsFontSizeToFit numberOfLines={1} style={s.cardNumber}>{view.warming}<Text style={s.smallUnit}>°F/min</Text></Text><WarmingBars /><Text style={s.caption}>Heat accumulating</Text></View>
-      <View style={s.card}><Text style={s.cardTitle}>Humidity</Text><Text style={s.caption}>{view.inputsCaption}</Text><Text style={s.cardNumber}>{view.humidity}<Text style={s.smallUnit}>%</Text></Text><HumidityDots share={view.humidityShare} /><Text style={s.caption}>Relative humidity</Text></View>
     </View>
     <View style={s.context}><View style={s.contextItem}><Icon name="clock" size={17} color={ink} /><Text style={s.contextText}>{view.timeOfDay}</Text></View><Text style={s.caption}>{view.startCaption}</Text></View>
-    <View style={s.future}><Text style={s.futureTitle}>How heat becomes insight.</Text><Text style={s.body}>Databricks turns patterns in logged temperature, humidity, time of day, and warming rate into a simple prediction.</Text><Text style={s.body}>{view.basis}</Text></View>
+    <View style={s.future}><Text style={s.futureTitle}>How heat becomes insight.</Text><Text style={s.body}>Databricks turns patterns in logged temperature, time of day, and warming rate into a simple prediction.</Text><Text style={s.body}>{view.basis}</Text></View>
     <Text style={s.footnote}>A prediction from past heat tests, not a safe waiting time. Live alerts and countdowns always come from the box.</Text>
   </>;
 }

@@ -8,7 +8,7 @@ import { MISSING, statusView } from '../dashboard/view.js';
 const snapshot = (distanceCm) => ({
   online: true,
   lastSeen: 1_700_000_000_000,
-  status: { state: 'ARMED', tempF: 76, humidity: 50, presence: false, distanceCm },
+  status: { state: 'ARMED', tempF: 76, presence: false, distanceCm },
 });
 
 test('seat distance shows distanceCm exactly as sent', () => {

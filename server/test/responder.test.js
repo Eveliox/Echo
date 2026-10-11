@@ -11,7 +11,7 @@ import { createFakeClock, settle } from './fake-clock.js';
 const contacts = [{ name: 'Mom', number: '+15550000001' }, { name: 'Alex', number: '+15550000002' }];
 
 const status = (state, overrides = {}) => ({
-  state, tempF: 104.5, humidity: 40, presence: true, distanceCm: 30,
+  state, tempF: 104.5, presence: true, distanceCm: 30,
   motion: null, minsToDanger: 3, battery: null, ...overrides,
 });
 

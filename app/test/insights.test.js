@@ -9,7 +9,7 @@ const exported = {
   mae: 1.24, evaluation: 'held out by run',
   headline: { tempF: 88, timeOfDay: 'evening', minutes: 21 },
   points: [{ minute: 0, tempF: 88.2 }, { minute: 5, tempF: 92 }, { minute: 9.5, tempF: 96.4 }, { minute: 15, tempF: 100.1 }, { minute: 19.6, tempF: 104 }],
-  inputs: { humidity: 55, warmRateFPerMin: 0.7 },
+  inputs: { warmRateFPerMin: 0.7 },
 };
 const copy = (patch = {}) => ({ ...structuredClone(exported), ...patch });
 
@@ -23,7 +23,7 @@ test('a real notebook export becomes plain-words view values from the JSON, with
   assert.equal(view.subtitle, 'An evening, predicted.');
   assert.deepEqual(view.moments.map(m => [m.minute, m.temperature, m.label]), [['0', 88, 'Starting cabin'], ['9.5', 96, 'Heat building'], ['19.6', 104, 'Danger threshold']]);
   assert.equal(view.ticks.length, 5);
-  assert.equal(view.warming, '+0.70'); assert.equal(view.humidity, '55'); assert.equal(view.humidityShare, 0.55);
+  assert.equal(view.warming, '+0.70');
   assert.equal(view.basis, 'Fit on 2 real heat tests. Typical error 1.2 min (held out by run).');
 });
 
@@ -48,7 +48,7 @@ const starter = {
   version: 1, source: 'design example', generatedAt: null, real: false, runs: 0, realRuns: 0, mae: null, evaluation: null,
   headline: { tempF: 92, timeOfDay: 'afternoon', minutes: 14 },
   points: [{ minute: 0, tempF: 92 }, { minute: 7, tempF: 98 }, { minute: 14, tempF: 104 }],
-  inputs: { humidity: 41, warmRateFPerMin: 0.86 },
+  inputs: { warmRateFPerMin: 0.86 },
 };
 test('the design-example starter shows the label, the note, and the original arc points', () => {
   assert.equal(validInsights(starter), true);
@@ -79,7 +79,7 @@ test('malformed, incomplete, out-of-range or oversized files fall back without t
     copy({ points: [{ minute: 1, tempF: 92 }, { minute: 14, tempF: 104 }] }),
     copy({ points: [{ minute: 0, tempF: 92 }, { minute: 10, tempF: 98 }, { minute: 7, tempF: 104 }] }),
     copy({ points: [{ minute: 0, tempF: 92 }, null] }), copy({ points: [{ minute: 0, tempF: 92 }, { minute: 14, tempF: NaN }] }),
-    copy({ inputs: null }), copy({ inputs: { humidity: 140, warmRateFPerMin: 1 } }), copy({ inputs: { humidity: 40 } }),
+    copy({ inputs: null }), copy({ inputs: {} }),
   ];
   for (const data of bad) {
     assert.equal(validInsights(data), false, JSON.stringify(data)?.slice(0, 120));
@@ -89,8 +89,8 @@ test('malformed, incomplete, out-of-range or oversized files fall back without t
 });
 
 test('null inputs and a run that stops short of danger stay literal', () => {
-  const view = insightsView(copy({ inputs: { humidity: null, warmRateFPerMin: null }, points: [{ minute: 0, tempF: 88 }, { minute: 3, tempF: 91 }] }));
-  assert.equal(view.warming, '—'); assert.equal(view.humidity, '—'); assert.equal(view.humidityShare, 0);
+  const view = insightsView(copy({ inputs: { warmRateFPerMin: null }, points: [{ minute: 0, tempF: 88 }, { minute: 3, tempF: 91 }] }));
+  assert.equal(view.warming, '—');
   assert.deepEqual(view.moments.map(m => m.label), ['Starting cabin', 'Last reading']);
   assert.equal(insightsView(copy({ headline: { tempF: 95, timeOfDay: 'morning', minutes: 1 } })).sentence, 'On a 95°F morning, your car hits danger in 1 minute.');
 });

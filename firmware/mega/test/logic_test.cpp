@@ -608,7 +608,7 @@ static void test_debounce_press_and_release() {
 }
 
 // ---------------------------------------------------------------------------
-// Fault indicator, humidity age limit
+// Fault indicator
 // ---------------------------------------------------------------------------
 
 // Pins the no-retry decision's consequence: with a failed power-up baseline
@@ -657,54 +657,6 @@ static void test_fault_led_two_short_flashes_per_cycle() {
   CHECK(lit == 2 * FAULT_FLASH_MS);
 }
 
-static void test_humidity_starts_invalid() {
-  HumidityHold h;
-  humidityInit(h);
-  float v = -1.0f;
-  CHECK(!humidityCurrent(h, 0, v));
-  CHECK(v == -1.0f);
-}
-
-static void test_humidity_repeats_last_good_until_age_limit() {
-  HumidityHold h;
-  humidityInit(h);
-  humidityUpdate(h, 41.0f, 1000);
-  float v = 0.0f;
-  CHECK(humidityCurrent(h, 1000, v) && v == 41.0f);
-  humidityUpdate(h, NAN, 3000);  // failed read keeps the old value
-  CHECK(humidityCurrent(h, 1000 + HUMIDITY_MAX_AGE_MS, v) && v == 41.0f);
-  CHECK(!humidityCurrent(h, 1000 + HUMIDITY_MAX_AGE_MS + 1, v));
-  // Expired stays expired, even back at an earlier-looking time.
-  CHECK(!humidityCurrent(h, 1000, v));
-  // A new good reading is valid again.
-  humidityUpdate(h, 55.0f, 50000);
-  CHECK(humidityCurrent(h, 50000, v) && v == 55.0f);
-}
-
-static void test_humidity_ignores_out_of_range() {
-  HumidityHold h;
-  humidityInit(h);
-  float v = 0.0f;
-  humidityUpdate(h, -1.0f, 0);
-  humidityUpdate(h, 100.5f, 0);
-  humidityUpdate(h, INFINITY, 0);
-  CHECK(!humidityCurrent(h, 0, v));
-  humidityUpdate(h, 0.0f, 0);
-  CHECK(humidityCurrent(h, 0, v) && v == 0.0f);
-  humidityUpdate(h, 100.0f, 0);
-  CHECK(humidityCurrent(h, 0, v) && v == 100.0f);
-}
-
-static void test_humidity_age_survives_wraparound() {
-  HumidityHold h;
-  humidityInit(h);
-  uint32_t t = 0xFFFFFFFFUL - 999;
-  humidityUpdate(h, 40.0f, t);
-  float v = 0.0f;
-  CHECK(humidityCurrent(h, t + HUMIDITY_MAX_AGE_MS, v) && v == 40.0f);  // wrapped
-  CHECK(!humidityCurrent(h, t + HUMIDITY_MAX_AGE_MS + 1, v));
-}
-
 
 // ---------------------------------------------------------------------------
 // Status line
@@ -714,7 +666,6 @@ static StatusFields sampleFields() {
   StatusFields f;
   f.level = LEVEL_WARNING;
   f.tempF = 96.4f;
-  f.humidity = 41.0f;
   f.presence = true;
   f.distanceCm = 38.0f;
   f.minsToDanger = NAN;
@@ -727,7 +678,7 @@ static void test_status_line_exact_format() {
   StatusFields f = sampleFields();
   uint16_t n = statusFormat(buf, sizeof buf, f);
   const char *want =
-      "{\"state\":\"WARNING\",\"tempF\":96.4,\"humidity\":41,\"presence\":true,"
+      "{\"state\":\"WARNING\",\"tempF\":96.4,\"presence\":true,"
       "\"distanceCm\":38,\"motion\":null,\"minsToDanger\":null,\"battery\":null}";
   CHECK(strcmp(buf, want) == 0);
   CHECK(n == strlen(want));
@@ -738,7 +689,7 @@ static void test_status_line_has_doc_fields_in_order_without_light() {
   char buf[STATUS_LINE_MAX];
   StatusFields f = sampleFields();
   statusFormat(buf, sizeof buf, f);
-  const char *order[] = {"\"state\":", "\"tempF\":", "\"humidity\":", "\"presence\":",
+  const char *order[] = {"\"state\":", "\"tempF\":", "\"presence\":",
                          "\"distanceCm\":", "\"motion\":", "\"minsToDanger\":",
                          "\"battery\":"};
   const char *prev = buf;
@@ -769,12 +720,10 @@ static void test_status_line_number_rounding() {
   char buf[STATUS_LINE_MAX];
   StatusFields f = sampleFields();
   f.tempF = 80.0f;
-  f.humidity = 40.6f;
   f.presence = false;
   f.distanceCm = 61.4f;
   statusFormat(buf, sizeof buf, f);
   CHECK(strstr(buf, "\"tempF\":80.0,") != NULL);
-  CHECK(strstr(buf, "\"humidity\":41,") != NULL);
   CHECK(strstr(buf, "\"presence\":false,") != NULL);
   CHECK(strstr(buf, "\"distanceCm\":61,") != NULL);
 
@@ -799,9 +748,6 @@ static void test_status_line_rejects_non_finite_required_numbers() {
     f.tempF = bad[i];
     CHECK(statusFormat(buf, sizeof buf, f) == 0 && buf[0] == '\0');
     f = sampleFields();
-    f.humidity = bad[i];
-    CHECK(statusFormat(buf, sizeof buf, f) == 0 && buf[0] == '\0');
-    f = sampleFields();
     f.distanceCm = bad[i];
     CHECK(statusFormat(buf, sizeof buf, f) == 0 && buf[0] == '\0');
   }
@@ -811,7 +757,6 @@ static void test_status_line_never_overflows() {
   StatusFields f = sampleFields();
   f.level = LEVEL_EMERGENCY;
   f.tempF = -99999.9f;
-  f.humidity = -99999.0f;
   f.distanceCm = -99999.0f;
   char big[STATUS_LINE_MAX];
   uint16_t full = statusFormat(big, sizeof big, f);
@@ -917,7 +862,7 @@ static void test_status_line_battery_number_or_null() {
   f.battery = 88;
   uint16_t n = statusFormat(buf, sizeof buf, f);
   const char *want =
-      "{\"state\":\"WARNING\",\"tempF\":96.4,\"humidity\":41,\"presence\":true,"
+      "{\"state\":\"WARNING\",\"tempF\":96.4,\"presence\":true,"
       "\"distanceCm\":38,\"motion\":null,\"minsToDanger\":null,\"battery\":88}";
   CHECK(strcmp(buf, want) == 0);
   CHECK(n == strlen(want));
@@ -940,7 +885,6 @@ static void test_status_line_battery_number_or_null() {
   // The longest possible line, with a battery number, still fits.
   f.level = LEVEL_EMERGENCY;
   f.tempF = -99999.9f;
-  f.humidity = -99999.0f;
   f.distanceCm = -99999.0f;
   f.minsToDanger = 99999.9f;
   f.battery = 100;
@@ -1452,7 +1396,7 @@ static void test_status_line_mins_to_danger_number_or_null() {
   uint16_t n = statusFormat(buf, sizeof buf, f);
   // The doc's example line, without the pending `light` and the unwired fields.
   const char *want =
-      "{\"state\":\"WARNING\",\"tempF\":96.4,\"humidity\":41,\"presence\":true,"
+      "{\"state\":\"WARNING\",\"tempF\":96.4,\"presence\":true,"
       "\"distanceCm\":38,\"motion\":null,\"minsToDanger\":7.5,\"battery\":null}";
   CHECK(strcmp(buf, want) == 0);
   CHECK(n == strlen(want));
@@ -1479,7 +1423,6 @@ static void test_status_line_mins_to_danger_number_or_null() {
   // The longest possible line still fits.
   f.level = LEVEL_EMERGENCY;
   f.tempF = -99999.9f;
-  f.humidity = -99999.0f;
   f.distanceCm = -99999.0f;
   f.minsToDanger = 99999.9f;
   n = statusFormat(buf, sizeof buf, f);
@@ -1757,7 +1700,7 @@ static void test_line_reader_drops_partial_lines() {
   lineReaderInit(r);
   char last[LINE_READER_MAX_LEN + 1] = "";
   // Joined halfway through a line: the tail is dropped, the next line kept.
-  CHECK(feedStr(r, "F\":96.4,\"humidity\":41}\r\n{\"a\":3}\r\n", last, sizeof last) == 1);
+  CHECK(feedStr(r, "F\":96.4,\"presence\":true}\r\n{\"a\":3}\r\n", last, sizeof last) == 1);
   CHECK(strcmp(last, "{\"a\":3}") == 0);
   // Cut off before its closing brace.
   CHECK(feedStr(r, "{\"state\":\"WARN\n", last, sizeof last) == 0);
@@ -2415,10 +2358,6 @@ int main() {
   test_fault_active_only_without_baseline();
   test_fault_alarm_levels_win();
   test_fault_led_two_short_flashes_per_cycle();
-  test_humidity_starts_invalid();
-  test_humidity_repeats_last_good_until_age_limit();
-  test_humidity_ignores_out_of_range();
-  test_humidity_age_survives_wraparound();
   test_status_line_exact_format();
   test_status_line_has_doc_fields_in_order_without_light();
   test_status_line_every_state_name();

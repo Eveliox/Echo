@@ -420,7 +420,7 @@ inline bool debounceUpdate(Debouncer &d, bool raw, uint32_t nowMs) {
 // --- end sensor conversions and timing -------------------------------------
 
 // ---------------------------------------------------------------------------
-// No-baseline fault indicator, humidity age limit.
+// No-baseline fault indicator.
 //
 // Decisions not in the doc (pinned by tests in test/logic_test.cpp):
 // - The seat baseline is taken only at power-up with the seat empty (doc,
@@ -433,9 +433,6 @@ inline bool debounceUpdate(Debouncer &d, bool raw, uint32_t nowMs) {
 //   shows a fault code: magenta (red + blue, a color no level uses), two short
 //   flashes every FAULT_CYCLE_MS. From OCCUPANT up the level pattern always
 //   wins and the fault code is off.
-// - A good humidity reading is reused for at most HUMIDITY_MAX_AGE_MS; after
-//   that there is no valid humidity and the caller sends its placeholder.
-//   Out-of-range (outside 0-100 %) or NaN readings are ignored.
 // ---------------------------------------------------------------------------
 
 static const uint32_t FAULT_CYCLE_MS = 2000UL;
@@ -455,42 +452,7 @@ inline bool seatFaultLedOn(uint32_t nowMs) {
   return phase >= FAULT_SECOND_FLASH_AT_MS && phase < FAULT_SECOND_FLASH_AT_MS + FAULT_FLASH_MS;
 }
 
-static const uint32_t HUMIDITY_MAX_AGE_MS = 30000UL;
-
-struct HumidityHold {
-  bool have;
-  float value;
-  uint32_t atMs;  // when `value` was read
-};
-
-inline void humidityInit(HumidityHold &h) {
-  h.have = false;
-  h.value = 0.0f;
-  h.atMs = 0;
-}
-
-// Feeds one DHT11 reading; bad readings leave the last good one in place.
-inline void humidityUpdate(HumidityHold &h, float reading, uint32_t nowMs) {
-  if (!(reading >= 0.0f && reading <= 100.0f)) return;  // false for NaN too
-  h.have = true;
-  h.value = reading;
-  h.atMs = nowMs;
-}
-
-// True (and sets `out`) while the last good reading is at most
-// HUMIDITY_MAX_AGE_MS old. Once expired it stays expired until a new good
-// reading, even if millis() later wraps around to look fresh.
-inline bool humidityCurrent(HumidityHold &h, uint32_t nowMs, float &out) {
-  if (!h.have) return false;
-  if ((uint32_t)(nowMs - h.atMs) > HUMIDITY_MAX_AGE_MS) {
-    h.have = false;
-    return false;
-  }
-  out = h.value;
-  return true;
-}
-
-// --- end fault indicator, humidity age -------------------------------------
+// --- end fault indicator ------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Battery ("Power" in docs/firmware.md): pack + (the Mega's VIN pin) -> 10k ->
@@ -549,11 +511,10 @@ inline int8_t batteryStatus(bool dividerWired, float avgAdc) {
 // line (it can't happen with real readings).
 //
 // No snprintf: avr-libc's printf family has no %f, so numbers are written by
-// hand. tempF has one decimal; humidity and distanceCm are rounded integers.
-// The server requires tempF, humidity, and distanceCm to be numbers, so a
-// non-finite value there makes statusFormat fail (returns 0) instead of
-// sending a bad line; the sketch keeps last good values (humidity: a
-// placeholder once too old) to avoid that.
+// hand. tempF has one decimal; distanceCm is a rounded integer.
+// The server requires tempF and distanceCm to be numbers, so a non-finite
+// value there makes statusFormat fail (returns 0) instead of sending a bad
+// line; the sketch keeps last good values to avoid that.
 // ---------------------------------------------------------------------------
 
 static const uint16_t STATUS_LINE_MAX = 192;  // buffer size incl. terminator
@@ -561,7 +522,6 @@ static const uint16_t STATUS_LINE_MAX = 192;  // buffer size incl. terminator
 struct StatusFields {
   AlertLevel level;
   float tempF;
-  float humidity;
   bool presence;
   float distanceCm;
   float minsToDanger;  // NaN or negative: null
@@ -638,8 +598,6 @@ inline uint16_t statusFormat(char *out, uint16_t cap, const StatusFields &f) {
   sbPuts(b, alertLevelName(f.level));
   sbPuts(b, "\",\"tempF\":");
   sbPutFixed1(b, f.tempF);
-  sbPuts(b, ",\"humidity\":");
-  sbPutRounded(b, f.humidity);
   sbPuts(b, ",\"presence\":");
   sbPuts(b, f.presence ? "true" : "false");
   sbPuts(b, ",\"distanceCm\":");

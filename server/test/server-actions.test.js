@@ -15,7 +15,7 @@ const env = {
 const numbers = ['+15550000000', '+15550000001', '+15550000002', 'AC123', 'tok'];
 
 const status = (state) => ({
-  state, tempF: 104.5, humidity: 40, presence: true, distanceCm: 30,
+  state, tempF: 104.5, presence: true, distanceCm: 30,
   motion: null, minsToDanger: 0, battery: null,
 });
 

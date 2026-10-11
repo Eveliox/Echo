@@ -14,10 +14,12 @@ const isBoolean = (v) => typeof v === 'boolean';
 const isBooleanOrNull = (v) => v === null || isBoolean(v);
 
 // Required fields. `light` is pending approval, so it is optional (checked below).
+// `humidity` is no longer a field (the DHT11 was removed). Boxes still on the
+// old firmware send it; like any unknown field it is ignored, whatever its
+// value, so an old box is never rejected and never looks offline.
 const FIELDS = {
   state: (v) => STATES.includes(v),
   tempF: isNumber,
-  humidity: isNumber,
   presence: isBoolean,
   distanceCm: isNumber,
   motion: isBooleanOrNull,

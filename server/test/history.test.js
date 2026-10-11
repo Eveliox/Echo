@@ -16,7 +16,7 @@ const tmp = mkdtempSync(join(tmpdir(), 'echo-history-test-'));
 after(() => rmSync(tmp, { recursive: true, force: true }));
 
 const status = (overrides = {}) => ({
-  state: 'OCCUPANT', tempF: 88.2, humidity: 40, presence: true, distanceCm: 30,
+  state: 'OCCUPANT', tempF: 88.2, presence: true, distanceCm: 30,
   motion: null, minsToDanger: null, battery: null, ...overrides,
 });
 
@@ -120,9 +120,11 @@ test('accepted statuses are logged as "# <ISO time>" + the body as received, and
   const b = await start(createServer({ history: historyB, statusLog: logB }));
   try {
     // The box's own bytes: odd spacing and number formatting, a Serial line ending.
+    // raw[0] is from the old firmware (still sends humidity, which is ignored but
+    // logged as received); raw[1] is the new format without humidity.
     const raw = [
       '{"state":"IDLE","tempF":80.40,"humidity":41,"presence":false,"distanceCm":62,"motion":null,"minsToDanger":null,"battery":null}\r\n',
-      '{ "state": "WARNING", "tempF": 96.4, "humidity": 41, "light": 812, "presence": true, "distanceCm": 38, "motion": false, "minsToDanger": 7.5, "battery": 88 }',
+      '{ "state": "WARNING", "tempF": 96.4, "light": 812, "presence": true, "distanceCm": 38, "motion": false, "minsToDanger": 7.5, "battery": 88 }',
     ];
     const pretty = JSON.stringify(status({ state: 'EMERGENCY', tempF: 104.5, minsToDanger: 0 }), null, 2);
     assert.equal(await post(a.base, raw[0]), 200);

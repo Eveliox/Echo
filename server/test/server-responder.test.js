@@ -18,7 +18,7 @@ const config = readConfig({
 });
 
 const status = (state) => ({
-  state, tempF: 104.5, humidity: 40, presence: true, distanceCm: 30,
+  state, tempF: 104.5, presence: true, distanceCm: 30,
   motion: null, minsToDanger: 2, battery: null,
 });
 

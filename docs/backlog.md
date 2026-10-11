@@ -29,7 +29,7 @@ Proven by: logic-test
 
 ### 4. mega: read sensors, run the logic, send the status line every 2 s
 Owner: David (hw) · Size: M · Depends on: 2, 3 · Issue: #4
-- [ ] The sketch reads the ignition, cancel, ultrasonic, LM35 (with the `SIMULATE_TEMP` joystick path), and DHT11 on the pins in "Mega pin map"
+- [ ] The sketch reads the ignition, cancel, ultrasonic, and LM35 (with the `SIMULATE_TEMP` joystick path) on the pins in "Mega pin map"
 - [ ] Every 2 s it prints one status line to Serial and Serial1, in the format from "Data format and Wi-Fi" (`light` left out while it's pending; `motion`, `battery`, and `minsToDanger` sent as `null` for now)
 - [ ] Manual: someone sits on the seat, the ignition jumper is pulled, and the Serial Monitor shows OCCUPANT within the brief's alert-speed target
 Proven by: firmware-mega, logic-test, manual hardware check
@@ -127,7 +127,7 @@ Proven by: logic-test, firmware-mega, manual hardware check
 ### 14. notebooks: Databricks heat-test notebook
 Owner: David (hw) · Size: M · Depends on: 9 · Issue: #14
 - [ ] A notebook in `notebooks/` loads the server's JSONL logs (uploaded by hand; logs are gitignored) into a table, using the `#` receive-time lines for time of day
-- [ ] Fits minutes to danger from the logged fields (temperature, humidity, time of day; not `light` until it's approved) and shows predicted vs. actual for at least one real heat test, i.e. a run with `SIMULATE_TEMP` off, named as such in the log filename or a notes.md entry
+- [ ] Fits minutes to danger from the logged fields (temperature, time of day, warming rate; not `light` until it's approved) and shows predicted vs. actual for at least one real heat test, i.e. a run with `SIMULATE_TEMP` off, named as such in the log filename or a notes.md entry
 - [ ] Predictions are only for the app's Heat insights screen; nothing feeds back into alerts or calls. No repo dependencies; Databricks runtime only
 Proven by: manual check (run in Databricks)
 

@@ -25,7 +25,7 @@ async function setup(t) {
 }
 test('on-my-way is fixed log only: status, incident and ladder schedule stay unchanged', async t => {
   const s = await setup(t);
-  const status = { state: 'EMERGENCY', tempF: 104, humidity: 40, presence: true, distanceCm: 30, motion: null, minsToDanger: 0, battery: null };
+  const status = { state: 'EMERGENCY', tempF: 104, presence: true, distanceCm: 30, motion: null, minsToDanger: 0, battery: null };
   assert.equal(await s.post('/status', JSON.stringify(status)), 200);
   const before = { status: s.tracker.snapshot(), incident: s.ladder.incident(), history: s.history.entries(), pending: s.clock.pending() };
   const t0 = s.clock.now();

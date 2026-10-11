@@ -6,10 +6,8 @@
 // the alert level. Each temperature reading also feeds minutes to danger,
 // which can raise WARNING and EMERGENCY and is sent and shown on the LCD.
 //
-// Libraries: "DHT sensor library" by Adafruit (see docs/firmware.md, "Setup and
-// build order") and the built-in LiquidCrystal.
+// Libraries: the built-in LiquidCrystal.
 
-#include <DHT.h>
 #include <LiquidCrystal.h>
 
 #include "logic.h"
@@ -22,7 +20,6 @@ const bool SIMULATE_TEMP = false;
 const bool BATTERY_DIVIDER_WIRED = false;
 
 // Pins: docs/firmware.md, "Mega pin map".
-const uint8_t DHT_PIN = 2;
 const uint8_t IGNITION_PIN = 4;  // jumper to GND: plugged in (LOW) = car on
 const uint8_t CANCEL_PIN = 5;    // button to GND: pressed = LOW
 const uint8_t US_ECHO_PIN = 6;
@@ -63,24 +60,18 @@ const unsigned long SERIAL_BAUD = 115200UL;
 // "RGB LED note"); then each color value is inverted.
 const bool RGB_COMMON_ANODE = false;
 
-// Sent as humidity when there is no recent good DHT11 reading. A number for
-// now because the server requires one.
-const float HUMIDITY_PLACEHOLDER = 0.0f;
-
 // HC-SR04: give up on an echo after about 4 m of travel, and leave time for
 // the previous echo to die out before the next ping.
 const unsigned long PING_TIMEOUT_US = 25000UL;
 const unsigned long PING_GAP_MS = 60UL;
 const float US_PER_CM = 58.0f;  // round-trip microseconds per cm
 
-DHT dht(DHT_PIN, DHT11);
 LiquidCrystal lcd(LCD_RS_PIN, LCD_E_PIN, LCD_D4_PIN, LCD_D5_PIN, LCD_D6_PIN, LCD_D7_PIN);
 
 AlertState alertState;
 SeatDetector seat;
 Debouncer cancelButton;
 Periodic statusTimer;
-HumidityHold humidity;
 LevelClock levelClock;
 TempHistory tempHistory;
 
@@ -152,9 +143,7 @@ float readBatteryAdc() {
 
 float readTempF() { return SIMULATE_TEMP ? readSimulatedF() : readLM35F(); }
 
-void readHumidity() { humidityUpdate(humidity, dht.readHumidity(), millis()); }
-
-// Ultrasonic, temperature, humidity, and battery: once per status period.
+// Ultrasonic, temperature, and battery: once per status period.
 void readSlowSensors() {
   float pings[SEAT_PINGS_PER_READING];
   for (uint8_t i = 0; i < SEAT_PINGS_PER_READING; i++) pings[i] = pingCm();
@@ -167,8 +156,6 @@ void readSlowSensors() {
   tempHistoryAdd(tempHistory, t, millis());  // skips a failed (NaN) reading
   minsToDanger = tempHistoryMinsToDanger(tempHistory, tempF);
 
-  readHumidity();
-
   float batteryAdc = BATTERY_DIVIDER_WIRED ? readBatteryAdc() : 0.0f;
   battery = batteryStatus(BATTERY_DIVIDER_WIRED, batteryAdc);
 }
@@ -177,8 +164,6 @@ void sendStatus() {
   StatusFields f;
   f.level = alertState.level;
   f.tempF = tempF;
-  float h;
-  f.humidity = humidityCurrent(humidity, millis(), h) ? h : HUMIDITY_PLACEHOLDER;
   f.presence = seat.occupied;
   f.distanceCm = distanceCm;
   f.minsToDanger = minsToDanger;
@@ -255,7 +240,6 @@ void setup() {
   noTone(BUZZER_PIN);
   lcd.begin(LCD_COLS, LCD_ROWS);
   lcd.clear();
-  dht.begin();
 
   if (SIMULATE_TEMP) {
     // Not JSON, so the ESP drops it; only the Serial Monitor sees it.
@@ -273,8 +257,6 @@ void setup() {
 
   tempF = SIMULATE_TEMP ? SIM_START_F : readLM35F();
   lastSimUpdate = millis();
-  humidityInit(humidity);
-  readHumidity();
   tempHistoryInit(tempHistory);
 
   alertInit(alertState);

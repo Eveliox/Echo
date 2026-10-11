@@ -73,7 +73,7 @@ function fakeTimers() {
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 const status = (overrides = {}) => ({
-  state: 'WARNING', tempF: 96.4, humidity: 41, presence: true, distanceCm: 38,
+  state: 'WARNING', tempF: 96.4, presence: true, distanceCm: 38,
   motion: false, minsToDanger: 7.5, battery: 88, ...overrides,
 });
 const t1 = new Date(2026, 9, 10, 1, 2, 3).getTime();

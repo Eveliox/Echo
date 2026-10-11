@@ -312,3 +312,10 @@ Parents can now replace the contact list from the app's Contacts tab (Edit conta
 - To undo: delete server/contacts.json and restart; the .env contacts come back.
 - Demo gotcha: on the Twilio trial, a saved number only rings if it's verified in Twilio. Save the demo phones' numbers, or keep using the .env ones.
 - Not done: the manual check in #26 (phone save → restart → new names; a live call to a saved number). No GitHub issue opened yet.
+
+## 2026-10-11 (David, humidity and DHT11 removed)
+
+Decision (David, with Eve's agreement): the DHT11 is physically removed and the system tracks temperature only. The `humidity` status field is gone from docs (firmware.md parts, pin map with D2 free, JSON, build steps; brief; backlog), firmware (logic.h, mega.ino; the DHT library is no longer needed), the server validator, the simulator recording (107 lines, humidity keys only), the notebook features and insights payload (`inputs` now `{warmRateFPerMin}`), the app (Insights humidity card, validator, model, insights.json), and tests. Supersedes the "make humidity nullable?" open questions above.
+- Compatibility: the server accepts statuses with or without humidity (any value ignored), so a box still on old firmware stays online and the ladder is unaffected. Pinned by unit and HTTP tests.
+- Re-flash the Mega to stop sending humidity (the port can change: check `arduino-cli board list`; it was /dev/cu.usbmodem14101 today). Until then, the voice agent's get_car_status still sees the old humidity value. Re-import notebooks/heat_test.py into Databricks.
+- For Eve: app/test/model.test.js "preserves zero and decimals" lost its only decimal case (humidity 41.25), so add a decimal battery value; the Insights row now has a single full-width card; brief.md still lists "sunlight" as a model input while `light` is pending.

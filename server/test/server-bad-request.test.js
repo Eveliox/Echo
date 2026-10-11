@@ -32,7 +32,7 @@ const raw = (method, target, p = port) => new Promise((resolve, reject) => {
 });
 
 const status = (overrides = {}) => ({
-  state: 'OCCUPANT', tempF: 88.2, humidity: 40, presence: true, distanceCm: 30,
+  state: 'OCCUPANT', tempF: 88.2, presence: true, distanceCm: 30,
   motion: null, minsToDanger: null, battery: null, ...overrides,
 });
 

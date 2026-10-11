@@ -3,8 +3,8 @@
 # MAGIC # Echo heat test: minutes to danger
 # MAGIC
 # MAGIC Loads the server's status logs, works out how many minutes each moment of a heat test
-# MAGIC really was from danger, fits a small model on temperature, humidity, time of day, and
-# MAGIC recent warming rate, and shows predicted vs. actual for real heat tests.
+# MAGIC really was from danger, fits a small model on temperature, time of day, and recent
+# MAGIC warming rate, and shows predicted vs. actual for real heat tests.
 # MAGIC
 # MAGIC **Insights only.** The output is for the app's Heat insights screen (and the pitch). Nothing here
 # MAGIC feeds back into the box's alert levels, the backup ladder, or calls; the box computes its own
@@ -25,8 +25,8 @@
 # MAGIC    (receive times are logged in UTC). Set `export_path` to where `insights.json` should be written
 # MAGIC    (empty: print only). Then Run all.
 # MAGIC
-# MAGIC Only approved status fields are used: `tempF`, `humidity`, and the box's own `minsToDanger` for comparison.
-# MAGIC `light` is pending approval and is not used.
+# MAGIC Only approved status fields are used: `tempF`, and the box's own `minsToDanger` for comparison.
+# MAGIC `light` is pending approval and is not used. Older logs may still carry `humidity` (removed with the DHT11); it is ignored.
 
 # COMMAND ----------
 
@@ -46,7 +46,7 @@ RATE_WINDOW_S = 120.0
 # Fewest samples in the window before a rate is computed (about 20 s at the box's 2 s period).
 RATE_MIN_SAMPLES = 10
 
-FEATURES = ["tempF", "humidity", "hour_sin", "hour_cos", "warm_rate_f_per_min"]
+FEATURES = ["tempF", "hour_sin", "hour_cos", "warm_rate_f_per_min"]
 
 _REAL_MARKER = re.compile(r"(^|[-_.])real([-_.]|$)", re.IGNORECASE)
 
@@ -157,7 +157,7 @@ def add_run_features(rows):
     by_run = {}
     for row in rows:
         row["tempF"] = _num(row.get("tempF"))
-        row["humidity"] = _num(row.get("humidity"))
+        row.pop("humidity", None)  # older logs only; no longer a status field, ignored
         row["minsToDanger"] = _num(row.get("minsToDanger"))
         by_run.setdefault(row["run"], []).append(row)
 
@@ -224,8 +224,8 @@ def _rounded(value, digits):
 def insights_payload(pred_rows, used_runs, mae, in_sample, generated_at):
     """Builds the small JSON-serializable dict the app reads as app/assets/insights.json.
 
-    - `pred_rows`: evaluated statuses as dicts with `run`, `received_at`, `tempF`, `humidity`,
-      `hour`, `warm_rate_f_per_min`, `predicted_mins_to_danger`.
+    - `pred_rows`: evaluated statuses as dicts with `run`, `received_at`, `tempF`, `hour`,
+      `warm_rate_f_per_min`, `predicted_mins_to_danger`.
     - `used_runs`: the name of every run the model was fit on. `real` is True only if every
       one of them is a real heat test by its file name.
     - `mae`: the model's mean absolute error in minutes, or None.
@@ -272,8 +272,7 @@ def insights_payload(pred_rows, used_runs, mae, in_sample, generated_at):
         "headline": {"tempF": round(_num(first["tempF"])), "timeOfDay": time_of_day_word(first["hour"]),
                      "minutes": round(max(minutes, 0.0))},
         "points": points,
-        "inputs": {"humidity": None if _num(first.get("humidity")) is None else round(_num(first["humidity"])),
-                   "warmRateFPerMin": _rounded(first.get("warm_rate_f_per_min"), 2)},
+        "inputs": {"warmRateFPerMin": _rounded(first.get("warm_rate_f_per_min"), 2)},
     }
 
 # COMMAND ----------
@@ -313,7 +312,7 @@ for name, n_bad in skipped_by_file.items():
         print(f"  {name}: {n_bad} malformed lines skipped")
 
 # Session-scoped view so the data can be queried with SQL in this notebook; nothing persistent is written.
-table_cols = ["run", "is_real", "received_at", "hour", "state", "tempF", "humidity", "minsToDanger",
+table_cols = ["run", "is_real", "received_at", "hour", "state", "tempF", "minsToDanger",
               "warm_rate_f_per_min", "actual_mins_to_danger"]
 table_cols = [c for c in table_cols if c in pdf.columns]
 spark.createDataFrame(pdf[table_cols]).createOrReplaceTempView("echo_status")
@@ -372,7 +371,7 @@ RESULT_LABEL = "real heat test" if HAS_REAL else "NOT from a real heat test"
 
 # MAGIC %md
 # MAGIC ## Features and model
-# MAGIC Features per status: `tempF`, `humidity`, time of day as `hour_sin`/`hour_cos` (so 23:59 sits next to 00:00),
+# MAGIC Features per status: `tempF`, time of day as `hour_sin`/`hour_cos` (so 23:59 sits next to 00:00),
 # MAGIC and `warm_rate_f_per_min`, the least-squares slope of `tempF` over the run's own statuses received in the last
 # MAGIC **2 minutes** (at least 10 readings). Target: `actual_mins_to_danger`.
 # MAGIC
@@ -400,7 +399,7 @@ for run in eval_runs:
     test = train_pdf[train_pdf["run"] == run]
     train = train_pdf if IN_SAMPLE else train_pdf[train_pdf["run"] != run]
     model = LinearRegression().fit(train[FEATURES], train["actual_mins_to_danger"])
-    out = test[["run", "is_real", "received_at", "tempF", "humidity", "hour", "warm_rate_f_per_min",
+    out = test[["run", "is_real", "received_at", "tempF", "hour", "warm_rate_f_per_min",
                 "minsToDanger", "actual_mins_to_danger"]].copy()
     out["predicted_mins_to_danger"] = np.clip(model.predict(test[FEATURES]), 0, None)
     preds.append(out)
@@ -477,7 +476,7 @@ for run, grp in pred_pdf.groupby("run"):
 # MAGIC | `evaluation` | `"held out by run"` or `"in-sample"` |
 # MAGIC | `headline` | `{tempF, timeOfDay, minutes}`: the representative run's first evaluated status, as whole numbers; `timeOfDay` is morning, afternoon, evening, or night; `minutes` is the **predicted** minutes to 104°F |
 # MAGIC | `points` | up to 8 `{minute, tempF}` (1 decimal): that run's **logged** temperatures, evenly spaced from the headline status (minute 0) to the danger crossing |
-# MAGIC | `inputs` | `{humidity, warmRateFPerMin}` at the headline status, each `null` when not logged |
+# MAGIC | `inputs` | `{warmRateFPerMin}` at the headline status, `null` when not logged |
 # MAGIC
 # MAGIC The representative run is the first real evaluated run by name, else the first evaluated run. No run names, raw
 # MAGIC log lines, phone numbers, names, or keys go in the file.

@@ -16,7 +16,7 @@ before(async () => {
 after(() => new Promise((resolve) => server.close(resolve)));
 
 const status = (overrides = {}) => ({
-  state: 'OCCUPANT', tempF: 88.2, humidity: 40, presence: true, distanceCm: 30,
+  state: 'OCCUPANT', tempF: 88.2, presence: true, distanceCm: 30,
   motion: null, minsToDanger: null, battery: null, ...overrides,
 });
 
@@ -45,6 +45,17 @@ test('POST /status keeps the latest valid status', async () => {
     online: true, lastSeen: 3_000,
     status: status({ state: 'WARNING', tempF: 96.4, minsToDanger: 7.5 }),
   });
+});
+
+test('POST /status accepts the old firmware line with humidity and the new one without', async () => {
+  const before = await get();
+  const oldLine = '{"state":"OCCUPANT","tempF":88.2,"humidity":41,"presence":true,"distanceCm":30,"motion":null,"minsToDanger":null,"battery":null}';
+  const newLine = '{"state":"OCCUPANT","tempF":88.2,"presence":true,"distanceCm":30,"motion":null,"minsToDanger":null,"battery":null}';
+  assert.equal((await post(oldLine)).status, 200);
+  assert.equal((await get()).online, true);
+  assert.equal((await post(newLine)).status, 200);
+  assert.deepEqual(await get(), { online: true, lastSeen: before.lastSeen, status: JSON.parse(newLine) });
+  assert.equal((await post(before.status)).status, 200); // restore for the tests below
 });
 
 test('invalid bodies get a 4xx and do not replace the latest status', async () => {

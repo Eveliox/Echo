@@ -79,11 +79,12 @@ test('latched emergency with an empty seat does not claim occupancy', () => {
 });
 
 test('sensor row preserves zero and decimals and distinguishes unknown motion from no movement', () => {
-  assert.deepEqual(sensorReadings({ presence: true, motion: null, humidity: 41.25, battery: 0 }), [
-    { label: 'Seat', value: 'Yes' }, { label: 'Movement', value: '—' },
-    { label: 'Humidity', value: '41.25%' }, { label: 'Battery', value: '0%' },
+  assert.deepEqual(sensorReadings({ presence: true, motion: null, battery: 0 }), [
+    { label: 'Seat', value: 'Yes' }, { label: 'Movement', value: '—' }, { label: 'Battery', value: '0%' },
   ]);
-  assert.deepEqual(sensorReadings({ presence: false, motion: false, humidity: 0, battery: null }).map(r => r.value), ['No', 'None', '0%', '—']);
+  assert.deepEqual(sensorReadings({ presence: false, motion: false, battery: null }).map(r => r.value), ['No', 'None', '—']);
+  // An old-firmware status still carrying humidity shows no humidity reading.
+  assert.deepEqual(sensorReadings({ presence: true, motion: null, humidity: 41, battery: 88 }).map(r => r.label), ['Seat', 'Movement', 'Battery']);
   assert.equal(sensorReadings({ motion: true })[1].value, 'Seen');
 });
 test('losing the box at WARNING or EMERGENCY stays an alarm; lower levels do not', () => {

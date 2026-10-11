@@ -18,7 +18,7 @@ const env = {
 const elevenLabs = { apiKey: 'fake-eleven-key', agentId: 'agent_fake', phoneNumberId: 'phnum_fake' };
 const names = ['Mom', 'Alex'];
 const status = {
-  state: 'EMERGENCY', tempF: 103.25, humidity: 40, presence: true, distanceCm: 30,
+  state: 'EMERGENCY', tempF: 103.25, presence: true, distanceCm: 30,
   motion: null, minsToDanger: 2.5, battery: null,
 };
 

@@ -9,7 +9,7 @@ The box is an Arduino Mega 2560 plus one ESP8266 NodeMCU; the Raspberry Pi, PiJu
 - **No Raspberry Pi.** The laptop runs the server, so the Pi's setup time buys nothing in the demo.
 - **No breathing detection.** The ultrasonic sensor faces the baby seat; a shorter distance means the seat is occupied. Pitch: *"The demo detects an occupied seat; production adds mmWave radar for breathing."*
 - **PIR is optional.** It backs up the ultrasonic but never replaces it, because it can miss a sleeping child. It is the first part to cut if time runs short.
-- **LM35 for temperature, DHT11 for humidity only.** The LM35 reads up to 150°C (the DHT11 stops at 50°C) and reacts instantly, so the box uses real hot-car thresholds.
+- **LM35 for temperature; no humidity.** The LM35 reads up to 150°C and reacts instantly, so the box uses real hot-car thresholds. The DHT11 was removed; the box tracks temperature only.
 - **Joystick simulates temperature for testing.** It walks the box through every alert level in about a minute; the demo itself uses the real LM35 and a hair dryer.
 - **Photoresistor** logs whether the car sits in direct sun, an input for the Databricks model.
 - **ESP8266 is the Wi-Fi modem.** The Mega decides and alarms; the ESP only forwards its messages.
@@ -25,7 +25,6 @@ The box is an Arduino Mega 2560 plus one ESP8266 NodeMCU; the Raspberry Pi, PiJu
 | ESP8266 NodeMCU | 2 | #1 forwards the Mega's JSON to the server; #2 is the spare |
 | HC-SR04 ultrasonic | 1 | Aimed at the baby seat; detects someone in it by distance, awake or asleep |
 | LM35 temperature sensor | 1 | Cabin temperature for the alert levels and minutes to danger |
-| DHT11 | 1 | Humidity (and a backup temperature reading) |
 | Photoresistor + 10kΩ | 1 | Light level: is the car in direct sun? |
 | PIR motion sensor (optional) | 1 | Movement; raises confidence that the seat holds a person, not a bag |
 | Joystick module | 1 | Testing only: simulates the cabin heating or cooling |
@@ -53,7 +52,7 @@ Run the Mega's 5V to the breadboard's red (+) rail and GND to the blue (−) rai
 
 | Part | Power | Signal pin(s) | Notes |
 | --- | --- | --- | --- |
-| DHT11 module | + → + rail, − → − rail | Data → D2 | Humidity; backup temperature |
+| (free) | — | D2 | Unused (the DHT11 was removed) |
 | PIR motion sensor (optional) | VCC → + rail, GND → − rail | OUT → D3 | Settles about 60 s after power-up. Unplugged, the firmware sends `motion: null` |
 | Ignition jumper | — | D4 ↔ − rail | Plugged in = car on; pulled out = car off. Built-in pull-up |
 | Cancel button (large) | — | D5 ↔ − rail | Across the breadboard's middle gap. Built-in pull-up |
@@ -191,10 +190,10 @@ float readTempF() { return SIMULATE_TEMP ? readSimulatedF() : readLM35F(); }
 The Mega sends the status message every 2 seconds; each message doubles as the heartbeat, so the server marks the box offline after 10 seconds of silence.
 
 ```json
-{ "state": "WARNING", "tempF": 96.4, "humidity": 41, "light": 812, "presence": true, "distanceCm": 38, "motion": false, "minsToDanger": 7.5, "battery": 88 }
+{ "state": "WARNING", "tempF": 96.4, "light": 812, "presence": true, "distanceCm": 38, "motion": false, "minsToDanger": 7.5, "battery": 88 }
 ```
 
-`humidity`, `distanceCm`, and `motion` are approved by both teammates. `light` (photoresistor reading, 0–1023) is new and needs both teammates' OK before it ships. `motion` is `null` when the PIR is unplugged; `battery` is `null` without the A0 divider or with no pack connected.
+`distanceCm` and `motion` are approved by both teammates. `humidity` was removed with the DHT11 (both teammates agreed); the server ignores it if a box on older firmware still sends it. `light` (photoresistor reading, 0–1023) is new and needs both teammates' OK before it ships. `motion` is `null` when the PIR is unplugged; `battery` is `null` without the A0 divider or with no pack connected.
 
 **Wi-Fi setup for the demo:**
 
@@ -211,7 +210,6 @@ Pitch line for the Wi-Fi question: the demo uses a hotspot; production carries i
 
 - Arduino IDE (or `arduino-cli`) with board Arduino Mega 2560 (FQBN `arduino:avr:mega`)
 - ESP8266 boards: add `http://arduino.esp8266.com/stable/package_esp8266com_index.json` to Additional Boards Manager URLs, install "esp8266", pick NodeMCU 1.0 (ESP-12E Module) (FQBN `esp8266:esp8266:nodemcuv2`)
-- Library: DHT sensor library by Adafruit (accept the Adafruit Unified Sensor dependency)
 - LiquidCrystal is built in
 - Repo folders: `firmware/mega/` and `firmware/esp/`, one sketch each
 
@@ -223,16 +221,15 @@ Pitch line for the Wi-Fi question: the demo uses a hotspot; production carries i
 4. Ultrasonic: print distance; record the empty-seat and occupied-seat numbers
 5. LM35: print °F; warm it with the hair dryer and watch it climb within seconds
 6. Joystick: with `SIMULATE_TEMP = true`, push right and watch the temperature rise; let go and it holds
-7. DHT11: print humidity and temperature; compare its temperature with the LM35's
-8. Photoresistor: print the A2 reading; cover it, then shine a phone light on it
-9. PIR (optional): print 1 or 0 while waving a hand
-10. Ignition jumper and cancel button: print their states
-11. RGB LED: find its type, then show blue, yellow, and red
-12. Passive buzzer: play a test siren
-13. LCD: show "HELLO" and adjust the contrast
-14. Full Mega sketch: alert levels, LCD, buzzer, JSON in the Serial Monitor
-15. ESP8266 alone: join the hotspot and POST a test message to the laptop server
-16. Mega → ESP link: the server receives the Mega's JSON every 2 seconds
-17. Switch `SIMULATE_TEMP` to false and run one full hair-dryer test
-18. Battery pack: unplug the laptop and confirm the box still alarms
-19. Unplug the ESP mid-alarm and confirm the siren keeps going
+7. Photoresistor: print the A2 reading; cover it, then shine a phone light on it
+8. PIR (optional): print 1 or 0 while waving a hand
+9. Ignition jumper and cancel button: print their states
+10. RGB LED: find its type, then show blue, yellow, and red
+11. Passive buzzer: play a test siren
+12. LCD: show "HELLO" and adjust the contrast
+13. Full Mega sketch: alert levels, LCD, buzzer, JSON in the Serial Monitor
+14. ESP8266 alone: join the hotspot and POST a test message to the laptop server
+15. Mega → ESP link: the server receives the Mega's JSON every 2 seconds
+16. Switch `SIMULATE_TEMP` to false and run one full hair-dryer test
+17. Battery pack: unplug the laptop and confirm the box still alarms
+18. Unplug the ESP mid-alarm and confirm the siren keeps going

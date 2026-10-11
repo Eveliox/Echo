@@ -5,7 +5,7 @@ import { createLadder, emergencyMessage } from '../ladder.js';
 const contacts = [{ name: 'Mom', number: '+15550000001' }];
 
 const status = (state, overrides = {}) => ({
-  state, tempF: 104.5, humidity: 40, presence: true, distanceCm: 30,
+  state, tempF: 104.5, presence: true, distanceCm: 30,
   motion: null, minsToDanger: 0, battery: null, ...overrides,
 });
 

@@ -9,7 +9,7 @@ import { judge, judgeLog, refuseReason, childEnv, BLANKED_CALL_KEYS, DEFAULT_SMO
 import { readConfig, missingCallSettings } from '../../server/calls.js';
 
 const last = {
-  state: 'EMERGENCY', tempF: 110.5, humidity: 30, presence: true, distanceCm: 38,
+  state: 'EMERGENCY', tempF: 110.5, presence: true, distanceCm: 38,
   motion: null, minsToDanger: null, battery: null,
 };
 const snapshot = { online: true, lastSeen: 1, status: { ...last } };

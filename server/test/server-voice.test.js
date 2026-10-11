@@ -18,7 +18,7 @@ const config = readConfig({
 const elevenLabs = { apiKey: 'fake-eleven-key', agentId: 'agent_fake', phoneNumberId: 'phnum_fake' };
 
 const status = {
-  state: 'EMERGENCY', tempF: 104.5, humidity: 40, presence: true, distanceCm: 30, motion: null, minsToDanger: 2, battery: null,
+  state: 'EMERGENCY', tempF: 104.5, presence: true, distanceCm: 30, motion: null, minsToDanger: 2, battery: null,
 };
 const LADDER_CALL = /^calls: called (\w+) .* for emergency, ladder step (\d) \(Twilio call/;
 const RUN_MS = 6 * 60_000;

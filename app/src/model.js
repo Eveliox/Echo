@@ -59,7 +59,6 @@ export function sensorReadings(status) {
   return [
     { label: 'Seat', value: status.presence == null ? '—' : status.presence ? 'Yes' : 'No' },
     { label: 'Movement', value: status.motion == null ? '—' : status.motion ? 'Seen' : 'None' },
-    { label: 'Humidity', value: status.humidity == null ? '—' : `${status.humidity}%` },
     { label: 'Battery', value: status.battery == null ? '—' : `${status.battery}%` },
   ];
 }

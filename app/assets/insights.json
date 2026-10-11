@@ -13,5 +13,5 @@
     { "minute": 7, "tempF": 98 },
     { "minute": 14, "tempF": 104 }
   ],
-  "inputs": { "humidity": 41, "warmRateFPerMin": 0.86 }
+  "inputs": { "warmRateFPerMin": 0.86 }
 }

@@ -4,12 +4,34 @@ import { createTracker, validateStatus, OFFLINE_AFTER_MS, STATES } from '../stat
 
 // The example from docs/firmware.md, minus `light` (pending; the Mega won't send it yet).
 const valid = () => ({
-  state: 'WARNING', tempF: 96.4, humidity: 41, presence: true, distanceCm: 38,
+  state: 'WARNING', tempF: 96.4, presence: true, distanceCm: 38,
   motion: false, minsToDanger: 7.5, battery: 88,
 });
 
+// The exact line the old firmware (with the DHT11) sends, until the Mega is re-flashed.
+const OLD_FIRMWARE_LINE =
+  '{"state":"WARNING","tempF":96.4,"humidity":41,"presence":true,"distanceCm":38,"motion":false,"minsToDanger":7.5,"battery":88}';
+// The same reading from the new firmware, without humidity.
+const NEW_FIRMWARE_LINE =
+  '{"state":"WARNING","tempF":96.4,"presence":true,"distanceCm":38,"motion":false,"minsToDanger":7.5,"battery":88}';
+
 test('accepts the documented status without light', () => {
   assert.equal(validateStatus(valid()), null);
+});
+
+test('accepts a new-firmware status with no humidity field', () => {
+  assert.equal(validateStatus(JSON.parse(NEW_FIRMWARE_LINE)), null);
+});
+
+test('accepts an old-firmware status that still sends a numeric humidity', () => {
+  assert.equal(validateStatus(JSON.parse(OLD_FIRMWARE_LINE)), null);
+  assert.equal(validateStatus({ ...valid(), humidity: 0 }), null, 'old firmware placeholder');
+});
+
+test('ignores any legacy humidity value instead of rejecting the status', () => {
+  for (const humidity of [null, '41', true, -5, 1000, {}, []]) {
+    assert.equal(validateStatus({ ...valid(), humidity }), null, `humidity=${JSON.stringify(humidity)}`);
+  }
 });
 
 test('accepts light when present', () => {
@@ -43,7 +65,7 @@ test('rejects each missing required field', () => {
 
 test('rejects wrong types', () => {
   const bad = {
-    tempF: '96.4', humidity: null, presence: 'yes', distanceCm: null,
+    tempF: '96.4', presence: 'yes', distanceCm: null,
     motion: 0, minsToDanger: '7.5', battery: true, light: null,
   };
   for (const [field, value] of Object.entries(bad)) {

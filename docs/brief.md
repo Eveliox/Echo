@@ -20,14 +20,14 @@ Echo is a roughly $40 dashboard box that detects an occupied seat in a parked ca
 
 | Track | How we hit it |
 | --- | --- |
-| Encompass: Data Capturing Hardware | The box captures seat presence, cabin heat, humidity, sunlight, and motion every 2 s and turns them into a life-saving alert |
-| Databricks: Best Use of Databricks | Log every heat test; predict minutes-to-danger from temperature, humidity, sunlight, and time of day; feed predictions into the app's Heat insights screen |
+| Encompass: Data Capturing Hardware | The box captures seat presence, cabin heat, sunlight, and motion every 2 s and turns them into a life-saving alert |
+| Databricks: Best Use of Databricks | Log every heat test; predict minutes-to-danger from temperature, sunlight, and time of day; feed predictions into the app's Heat insights screen |
 | Figma: Best Design | Clear, accessible app flow for a panicked parent: big status, one-tap actions, plain words |
 | Adobe: Prettiest Hack | Cohesive visual style across the app, dashboard, and box; animated heat curve and countdown |
 
 ## How it works
 
-1. **The box (Arduino Mega 2560):** reads the seat (ultrasonic), cabin heat (LM35), humidity (DHT11), sunlight (photoresistor), and optional motion (PIR); sets the alert level; alarms locally with an RGB LED, a passive-buzzer siren, and a 1602 LCD. It never needs the internet.
+1. **The box (Arduino Mega 2560):** reads the seat (ultrasonic), cabin heat (LM35), sunlight (photoresistor), and optional motion (PIR); sets the alert level; alarms locally with an RGB LED, a passive-buzzer siren, and a 1602 LCD. It never needs the internet.
 2. **Wi-Fi modem (ESP8266 NodeMCU):** forwards the Mega's JSON status line every 2 s to the laptop server over a 2.4 GHz phone hotspot. Pulling it out does not stop the alarm.
 3. **Server (laptop):** listens on port 3000 at `POST /status`; shows the live dashboard; marks the box offline after 10 s of silence; runs the plain-code backup call ladder.
 4. **Responder agent (Gemini + Twilio voice):** takes over contacting people at Emergency.
@@ -98,7 +98,7 @@ Change these only with both teammates' agreement.
 **Box → server** (every 2 s; doubles as the heartbeat). `light` is pending both teammates' OK; `motion` is `null` if the PIR is unplugged:
 
 ```json
-{ "state": "WARNING", "tempF": 96.4, "humidity": 41, "light": 812, "presence": true, "distanceCm": 38, "motion": false, "minsToDanger": 7.5, "battery": 88 }
+{ "state": "WARNING", "tempF": 96.4, "light": 812, "presence": true, "distanceCm": 38, "motion": false, "minsToDanger": 7.5, "battery": 88 }
 ```
 
 **Challenger scenario:**

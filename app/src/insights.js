@@ -33,7 +33,7 @@ export function validInsights(data) {
     if (i > 0 && point.minute < points[i - 1].minute) return false;
   }
   if (points[0].minute !== 0 || points.at(-1).minute <= 0) return false;
-  return isObject(inputs) && nullOr(inputs.humidity, 0, 100) && nullOr(inputs.warmRateFPerMin, -60, 60);
+  return isObject(inputs) && nullOr(inputs.warmRateFPerMin, -60, 60);
 }
 
 // The screen's arc: elapsed time along the curve, not a temperature scale.
@@ -66,7 +66,7 @@ export function insightsView(data) {
     return { minute: oneDecimal(point.minute), temperature: Math.round(point.tempF), ...arcPoint(point.minute / end),
       label: n === 0 ? 'Starting cabin' : !last ? 'Heat building' : point.tempF >= DANGER_F ? 'Danger threshold' : 'Last reading' };
   });
-  const { humidity, warmRateFPerMin: rate } = data.inputs;
+  const { warmRateFPerMin: rate } = data.inputs;
   const error = data.mae === null ? '' : ` Typical error ${oneDecimal(data.mae)} min (${data.evaluation ?? 'unevaluated'}).`;
   return {
     ok: true,
@@ -83,8 +83,6 @@ export function insightsView(data) {
     ticks: points.map(point => arcPoint(point.minute / end).x),
     timeline: example ? 'into the example' : 'into the logged heat test',
     warming: rate === null ? '—' : `${rate > 0 ? '+' : ''}${rate.toFixed(2)}`,
-    humidity: humidity === null ? '—' : String(Math.round(humidity)),
-    humidityShare: humidity === null ? 0 : humidity / 100,
     inputsCaption: example ? 'Example' : 'At the start',
     timeOfDay: timeOfDay[0].toUpperCase() + timeOfDay.slice(1),
     startCaption: `${temp}°F starting cabin · ${example ? 'example inputs' : 'heat-test inputs'}`,
