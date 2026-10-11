@@ -271,3 +271,10 @@ Aiming rule (supersedes "aim at 30–60 cm" in the 2026-10-10 notes): the empty 
 For Eve: the seat rule is a safety behavior change; please review docs/firmware.md "Seat detection". docs/backlog.md #3's wording still lists only the drop rule.
 
 Also: the dashboard now shows "Seat distance cm" (the box's distanceCm as sent), which makes bad aiming visible at a glance.
+
+## 2026-10-11 (David, heat run attempt; hardware paused)
+
+- No clean heat run yet. In the first attempt the LM35 read 90 ↔ 111 °F within seconds and sat at about 116–119 °F with nothing heating it: an electrical fault (likely water from the mug on the legs, a loose A1 wire, or the sensor bumped out of place), not real heat. After unplugging and checking, it read a steady 78–79 °F. That log is renamed `spoiled-2026-10-11-lm35-glitch.jsonl` on David's Desktop (~/Desktop/echo-logs); never upload it as real.
+- The clean run that followed only went IDLE/ARMED/OCCUPANT at 76–79 °F (no heating), so it isn't a heat test either.
+- Next heat run: keep the mug's outside against the LM35 with no drips, keep the A1 wire seated, start a fresh server per run (one log per run), and go past 104 °F. Then rename `real-<date>-<desc>.jsonl`.
+- The server and trackers are stopped. The Desktop logs from today are room-temperature or bench-test data only.
