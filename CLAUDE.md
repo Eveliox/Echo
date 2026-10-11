@@ -28,7 +28,6 @@ Read thresholds, pins, and formats from these docs. Don't copy them into code co
 - `firmware/mega/logic.h` is plain C++: no `Arduino.h`, no STL, only `<stdint.h>` and `<math.h>`. It must compile both with avr-gcc and with the laptop's g++.
 - The status JSON format in `docs/firmware.md` is fixed. Don't add, rename, remove, or retype a field without both teammates' OK; a field marked pending there is not approved yet.
 - Nothing received over Wi-Fi (ESP, server, app, agent) may silence or lower an alarm. Only the physical cancel button and the ignition clear one.
-- `SIMULATE_TEMP` is test-only. The demo build must have it off.
 - The hardware stack in `docs/firmware.md` is final. Part or pin changes need the whole team.
 - Never upload to a board: no `arduino-cli upload`, no `--upload`/`-u` on `compile`, no `avrdude` or `esptool`. Compiling is fine.
 
@@ -64,7 +63,6 @@ Reading the table:
 Checked by `test-gate full`:
 
 - Every non-TODO check passes, and `smoke` is not TODO.
-- `SIMULATE_TEMP` is off in `firmware/mega/`.
 - No secrets in tracked files.
 
 ## Workflow rules

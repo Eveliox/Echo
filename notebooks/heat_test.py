@@ -16,8 +16,8 @@
 # MAGIC **Uploading logs by hand.** The server writes one log per start to `server/logs/status-<start time>-<pid>.jsonl`
 # MAGIC (git-ignored): a `# <ISO receive time>` line, then the status JSON as received, repeated.
 # MAGIC 1. Rename each file you upload so its kind is in the name:
-# MAGIC    - `real-<date>-<desc>.jsonl` for a **real heat test**: built with `SIMULATE_TEMP` off, temperature from the LM35.
-# MAGIC    - `sim-<date>-<desc>.jsonl` for anything else (joystick simulation, replays of synthetic recordings).
+# MAGIC    - `real-<date>-<desc>.jsonl` for a **real heat test**: temperature from the LM35 in a real cabin.
+# MAGIC    - `sim-<date>-<desc>.jsonl` for anything else (replays of synthetic recordings, bench tests).
 # MAGIC    A file is treated as real only if its name has `real` as a whole word (split by `-`, `_`, or `.`).
 # MAGIC    Unmarked files count as **not real**.
 # MAGIC 2. Upload them to a Unity Catalog Volume (Catalog > your volume > Upload) or DBFS, all in one folder.
@@ -26,7 +26,7 @@
 # MAGIC    (empty: print only). Then Run all.
 # MAGIC
 # MAGIC Only approved status fields are used: `tempF`, and the box's own `minsToDanger` for comparison.
-# MAGIC `light` is pending approval and is not used. Older logs may still carry `humidity` (removed with the DHT11); it is ignored.
+# MAGIC Older logs may still carry `humidity`, `motion`, `battery`, or `light` (their parts were removed from the box); they are ignored.
 
 # COMMAND ----------
 
@@ -157,7 +157,8 @@ def add_run_features(rows):
     by_run = {}
     for row in rows:
         row["tempF"] = _num(row.get("tempF"))
-        row.pop("humidity", None)  # older logs only; no longer a status field, ignored
+        for legacy in ("humidity", "motion", "battery", "light"):
+            row.pop(legacy, None)  # older logs only; no longer status fields, ignored
         row["minsToDanger"] = _num(row.get("minsToDanger"))
         by_run.setdefault(row["run"], []).append(row)
 
@@ -323,7 +324,7 @@ display(spark.table("echo_status"))
 # MAGIC %md
 # MAGIC ## Real vs. simulated runs
 # MAGIC A run counts as a real heat test only when its file name has the `real` marker (see the top cell).
-# MAGIC The status JSON does not say whether `SIMULATE_TEMP` was on, so the name is the only signal.
+# MAGIC The status JSON does not say whether a run was a real heat test, so the name is the only signal.
 
 # COMMAND ----------
 
@@ -378,7 +379,7 @@ RESULT_LABEL = "real heat test" if HAS_REAL else "NOT from a real heat test"
 # MAGIC Model: ordinary linear regression, so each feature's effect is one readable coefficient. Training uses only runs
 # MAGIC that reach danger, and statuses before the crossing. Evaluation is **held out by run**: each evaluated run is
 # MAGIC predicted by a model fit on all the other runs. With only one usable run there is nothing to hold out, and the
-# MAGIC results are labelled in-sample. Simulated runs warm far faster than a real cabin (up to 30°F/min with the joystick),
+# MAGIC results are labelled in-sample. Simulated runs can warm far faster than a real cabin,
 # MAGIC so a model fit mostly on them extrapolates badly to real tests; more real runs fix that.
 
 # COMMAND ----------

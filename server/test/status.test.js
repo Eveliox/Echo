@@ -2,25 +2,34 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTracker, validateStatus, OFFLINE_AFTER_MS, STATES } from '../status.js';
 
-// The example from docs/firmware.md, minus `light` (pending; the Mega won't send it yet).
+// The example from docs/firmware.md.
 const valid = () => ({
-  state: 'WARNING', tempF: 96.4, presence: true, distanceCm: 38,
-  motion: false, minsToDanger: 7.5, battery: 88,
+  state: 'WARNING', tempF: 96.4, presence: true, distanceCm: 38, minsToDanger: 7.5,
 });
 
-// The exact line the old firmware (with the DHT11) sends, until the Mega is re-flashed.
+// The exact line the oldest firmware (with the DHT11) sends, until the Mega is re-flashed.
 const OLD_FIRMWARE_LINE =
   '{"state":"WARNING","tempF":96.4,"humidity":41,"presence":true,"distanceCm":38,"motion":false,"minsToDanger":7.5,"battery":88}';
-// The same reading from the new firmware, without humidity.
+// The firmware after the DHT11 removal: no humidity, still motion and battery.
+const NO_HUMIDITY_FIRMWARE_LINE =
+  '{"state":"WARNING","tempF":96.4,"presence":true,"distanceCm":38,"motion":null,"minsToDanger":7.5,"battery":null}';
+// The same reading from the current firmware: no humidity, motion, or battery.
 const NEW_FIRMWARE_LINE =
-  '{"state":"WARNING","tempF":96.4,"presence":true,"distanceCm":38,"motion":false,"minsToDanger":7.5,"battery":88}';
+  '{"state":"WARNING","tempF":96.4,"presence":true,"distanceCm":38,"minsToDanger":7.5}';
 
-test('accepts the documented status without light', () => {
+test('accepts the documented status', () => {
   assert.equal(validateStatus(valid()), null);
 });
 
-test('accepts a new-firmware status with no humidity field', () => {
+test('accepts a new-firmware status with no humidity, motion, or battery field', () => {
   assert.equal(validateStatus(JSON.parse(NEW_FIRMWARE_LINE)), null);
+  for (const field of ['humidity', 'motion', 'battery', 'light']) {
+    assert.ok(!(field in JSON.parse(NEW_FIRMWARE_LINE)), field);
+  }
+});
+
+test('accepts an older-firmware status that still sends motion and battery', () => {
+  assert.equal(validateStatus(JSON.parse(NO_HUMIDITY_FIRMWARE_LINE)), null);
 });
 
 test('accepts an old-firmware status that still sends a numeric humidity', () => {
@@ -34,16 +43,25 @@ test('ignores any legacy humidity value instead of rejecting the status', () => 
   }
 });
 
-test('accepts light when present', () => {
-  assert.equal(validateStatus({ ...valid(), light: 812 }), null);
+// motion, battery, and light are no longer fields: any value an old box (or a
+// box with a stray sensor) sends is ignored, never a reason to reject.
+test('ignores any legacy motion, battery, or light value instead of rejecting the status', () => {
+  for (const field of ['motion', 'battery', 'light']) {
+    for (const value of [null, false, true, 0, 88, 812, -5, '41', {}, []]) {
+      assert.equal(validateStatus({ ...valid(), [field]: value }), null, `${field}=${JSON.stringify(value)}`);
+    }
+  }
+  assert.equal(validateStatus({
+    ...valid(), humidity: 41, motion: false, battery: 88, light: 812,
+  }), null, 'all legacy fields at once');
 });
 
 test('accepts every alert level', () => {
   for (const state of STATES) assert.equal(validateStatus({ ...valid(), state }), null);
 });
 
-test('accepts null motion, minsToDanger, and battery', () => {
-  assert.equal(validateStatus({ ...valid(), motion: null, minsToDanger: null, battery: null }), null);
+test('accepts null minsToDanger', () => {
+  assert.equal(validateStatus({ ...valid(), minsToDanger: null }), null);
 });
 
 test('rejects non-objects', () => {
@@ -65,8 +83,7 @@ test('rejects each missing required field', () => {
 
 test('rejects wrong types', () => {
   const bad = {
-    tempF: '96.4', presence: 'yes', distanceCm: null,
-    motion: 0, minsToDanger: '7.5', battery: true, light: null,
+    tempF: '96.4', presence: 'yes', distanceCm: null, minsToDanger: '7.5',
   };
   for (const [field, value] of Object.entries(bad)) {
     assert.notEqual(validateStatus({ ...valid(), [field]: value }), null, `${field}=${JSON.stringify(value)}`);

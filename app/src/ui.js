@@ -29,8 +29,6 @@ const paths = {
   arrow: 'M5 12h14m-6-6 6 6-6 6',
   offline: 'm3 3 18 18M5 7a13 13 0 0 0-2 2m5 2-2 2m4 2-1 1m3 4h.01M10 5a14 14 0 0 1 11 4m-7 0a9 9 0 0 1 4 3',
   seat: 'M7 4v9h10v6M7 13l-2 6h12M8 7h4v5m-4 7v2m10-2v2',
-  motion: 'M4 12h3l3-6 4 12 3-6h3',
-  battery: 'M3 7h16v10H3zM21 10v4M6 10v4m3-4v4',
   clock: 'M12 8v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
   alert: 'm12 3 10 18H2zM12 9v5m0 3h.01',
 };

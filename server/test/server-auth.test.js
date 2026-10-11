@@ -12,7 +12,7 @@ const WRONG = 'wrong-token-value-1234';
 
 const status = (overrides = {}) => ({
   state: 'OCCUPANT', tempF: 88.2, presence: true, distanceCm: 30,
-  motion: null, minsToDanger: null, battery: null, ...overrides,
+  minsToDanger: null, ...overrides,
 });
 
 // A server with spies on everything a status reaches.

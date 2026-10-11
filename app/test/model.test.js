@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { viewModel as makeView, sensorReadings, emergencyCopy, lostAlarmCopy, heatCurve, DANGER_F, emergencyPhone, phoneUrl, serverUrl } from '../src/model.js';
 import { poll, request } from '../src/client.js';
 const viewModel = (snapshot, connected, now) => makeView(snapshot, connected, now, 1000);
-const status = { state: 'EMERGENCY', tempF: 101.23, presence: true, battery: null, minsToDanger: 3.75 };
+const status = { state: 'EMERGENCY', tempF: 101.23, presence: true, minsToDanger: 3.75 };
 const snapshot = { online: true, lastSeen: 1000, status };
 test('live numbers preserve box decimals, zero and null without a countdown', () => {
   assert.equal(viewModel(snapshot, true, 2000).minutes, '3.75');
@@ -78,14 +78,12 @@ test('latched emergency with an empty seat does not claim occupancy', () => {
   assert.doesNotMatch(emergencyCopy({ ...status, presence: false }), /occupied/);
 });
 
-test('sensor row preserves zero and decimals and distinguishes unknown motion from no movement', () => {
-  assert.deepEqual(sensorReadings({ presence: true, motion: null, battery: 0 }), [
-    { label: 'Seat', value: 'Yes' }, { label: 'Movement', value: '—' }, { label: 'Battery', value: '0%' },
-  ]);
-  assert.deepEqual(sensorReadings({ presence: false, motion: false, battery: null }).map(r => r.value), ['No', 'None', '—']);
-  // An old-firmware status still carrying humidity shows no humidity reading.
-  assert.deepEqual(sensorReadings({ presence: true, motion: null, humidity: 41, battery: 88 }).map(r => r.label), ['Seat', 'Movement', 'Battery']);
-  assert.equal(sensorReadings({ motion: true })[1].value, 'Seen');
+test('sensor row shows the seat and distinguishes an unknown seat from an empty one', () => {
+  assert.deepEqual(sensorReadings({ presence: true }), [{ label: 'Seat', value: 'Yes' }]);
+  assert.deepEqual(sensorReadings({ presence: false }).map(r => r.value), ['No']);
+  assert.deepEqual(sensorReadings({}).map(r => r.value), ['—']);
+  // An old-firmware status still carrying humidity, motion, or battery shows only the seat.
+  assert.deepEqual(sensorReadings({ presence: true, motion: null, humidity: 41, battery: 88 }).map(r => r.label), ['Seat']);
 });
 test('losing the box at WARNING or EMERGENCY stays an alarm; lower levels do not', () => {
   for (const state of ['WARNING', 'EMERGENCY']) {

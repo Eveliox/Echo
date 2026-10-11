@@ -58,8 +58,6 @@ export function heatCurve(entries, status, online, width = 300, height = 140) {
 export function sensorReadings(status) {
   return [
     { label: 'Seat', value: status.presence == null ? '—' : status.presence ? 'Yes' : 'No' },
-    { label: 'Movement', value: status.motion == null ? '—' : status.motion ? 'Seen' : 'None' },
-    { label: 'Battery', value: status.battery == null ? '—' : `${status.battery}%` },
   ];
 }
 

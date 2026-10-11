@@ -29,6 +29,7 @@ Proven by: logic-test
 
 ### 4. mega: read sensors, run the logic, send the status line every 2 s
 Owner: David (hw) · Size: M · Depends on: 2, 3 · Issue: #4
+Oct 11: the joystick (`SIMULATE_TEMP`), `light`, `motion` and `battery` were removed (both teammates agreed); the status line is now state, tempF, presence, distanceCm, minsToDanger.
 - [ ] The sketch reads the ignition, cancel, ultrasonic, and LM35 (with the `SIMULATE_TEMP` joystick path) on the pins in "Mega pin map"
 - [ ] Every 2 s it prints one status line to Serial and Serial1, in the format from "Data format and Wi-Fi" (`light` left out while it's pending; `motion`, `battery`, and `minsToDanger` sent as `null` for now)
 - [ ] Manual: someone sits on the seat, the ignition jumper is pulled, and the Serial Monitor shows OCCUPANT within the brief's alert-speed target
@@ -61,6 +62,7 @@ Proven by: smoke
 
 
 ### 8. mega: local alarm with RGB LED, buzzer, and LCD per level
+Oct 11: the LCD and joystick were removed from the box (both teammates agreed); the LED and buzzer parts stand. The LCD/SIM/joystick criteria below no longer apply; test the levels with heat on the LM35 instead.
 Owner: David (hw) · Size: M · Depends on: 4 · Issue: #8
 - [ ] LED color, buzzer pattern, and both LCD lines follow the level table in "Firmware behavior"; LCD shows SIM when simulating
 - [ ] The rule in `CLAUDE.md` about pins 9 and 10 is followed
@@ -70,8 +72,6 @@ Proven by: firmware-mega, manual hardware check
 ## Later
 - Minutes to danger (2-minute line fit) in logic.h, feeding WARNING/EMERGENCY and `minsToDanger`
 - Backup ladder steps 2–4
-- `light` field (photoresistor), once both teammates approve it
-- PIR `motion`, battery reading on A0
 - Dashboard
 - Responder agent (Gemini + Twilio voice), Telegram messages
 - Expo app, Figma
@@ -108,6 +108,7 @@ Proven by: server, manual check
 
 ### 12. mega: minutes to danger in logic.h, feeding the levels and `minsToDanger`
 Owner: David (hw) · Size: M · Depends on: none · Issue: #12
+Oct 11: the LCD was removed (both teammates agreed); `minsToDanger` still goes out in the status line.
 - [ ] logic.h fits a line to the last 2 minutes of temperature samples per "Minutes to danger" in docs/firmware.md "Firmware behavior", in a fixed-size array (no STL or allocation): null below the minimum warming rate or before 2 minutes of samples exist; 0 at or above the danger temperature, even when the rate is low
 - [ ] WARNING and EMERGENCY also enter on the minutes-to-danger conditions in the level table, only from OCCUPANT up; a null value never raises a level; levels still only climb
 - [ ] The status line sends `minsToDanger` as a number or null, and LCD line 2 shows it
@@ -116,6 +117,7 @@ Proven by: logic-test, firmware-mega, smoke
 
 
 ### 13. mega: battery reading on A0
+Oct 11: dropped. The A0 battery reading and the `battery` field were removed (both teammates agreed). The criteria below no longer apply.
 Owner: David (hw) · Size: S · Depends on: none · Issue: #13
 - [ ] First: the empty and full battery-pack voltages are agreed by the team and added to docs/firmware.md "Power"
 - [ ] logic.h maps the divider reading to a 0–100 integer, clamped; tests pin the doc voltages as literals
@@ -127,7 +129,7 @@ Proven by: logic-test, firmware-mega, manual hardware check
 ### 14. notebooks: Databricks heat-test notebook
 Owner: David (hw) · Size: M · Depends on: 9 · Issue: #14
 - [ ] A notebook in `notebooks/` loads the server's JSONL logs (uploaded by hand; logs are gitignored) into a table, using the `#` receive-time lines for time of day
-- [ ] Fits minutes to danger from the logged fields (temperature, time of day, warming rate; not `light` until it's approved) and shows predicted vs. actual for at least one real heat test, i.e. a run with `SIMULATE_TEMP` off, named as such in the log filename or a notes.md entry
+- [ ] Fits minutes to danger from the logged fields (temperature, time of day, warming rate) and shows predicted vs. actual for at least one real heat test, i.e. a run on the real LM35, named as such in the log filename or a notes.md entry
 - [ ] Predictions are only for the app's Heat insights screen; nothing feeds back into alerts or calls. No repo dependencies; Databricks runtime only
 Proven by: manual check (run in Databricks)
 
@@ -136,9 +138,9 @@ Proven by: manual check (run in Databricks)
 ### 15. hw: end-to-end run on the real box, through the ESP to the server
 Owner: David (hw) · Size: M · Depends on: none · Issue: #15
 - [ ] ESP enumerates and uploads (known data cable, then the spare NodeMCU), and the #5 hotspot check passes: the laptop server receives a status every 2 s and recovers after the hotspot drops
-- [ ] The box reaches WARNING and EMERGENCY on hardware (LM35 against hot water, or a local `SIMULATE_TEMP` build switched back off before committing), with the #8 yellow and red LED colors, buzzer and siren seen
+- [ ] The box reaches WARNING and EMERGENCY on hardware (LM35 against hot water or a hair dryer), with the #8 yellow and red LED colors, buzzer and siren seen
 - [ ] With `ECHO_CALLS=off`, the dashboard shows the run live and the server logs exactly one ladder step-1 line; the run's status log is renamed `real-*.jsonl` per the #14 notebook's rule and kept for #14 and the Heat insights ticket
-- [ ] #13 battery manual check, and results noted in docs/notes.md (this ticket tracks the open manual checks of #5, #8 and #13)
+- [ ] Results noted in docs/notes.md (this ticket tracks the open manual checks of #5 and #8; #13 was dropped)
 Proven by: manual hardware check
 
 
@@ -179,7 +181,7 @@ Proven by: server, smoke, manual check (live call)
 ### 20. app: Expo app with Home and Live alert screens
 Owner: Evelio (sw) · Size: L · Depends on: none · Issue: #20
 - [ ] An Expo app in `app/` from the Expo SDK template (expo, react, react-native; heat curve with react-native-svg or plain Views; nothing else) reads `/status` and `/history` over the hotspot (server URL configurable); `app/node_modules/` and `.expo/` are added to `.gitignore`
-- [ ] Home shows the car card (temperature, seat occupied, alert level, battery) as sent, and shows offline from `/status` `online`/`lastSeen` so old data never looks live. Live alert is a full red screen at EMERGENCY with `minsToDanger` as sent, the heat curve, "I'm on my way" and "Call 911" (opens the dialer via `tel:` with the number filled in, never dials by itself; a config flag can point it at a teammate for the demo)
+- [ ] Home shows the car card (temperature, seat occupied, alert level) as sent, and shows offline from `/status` `online`/`lastSeen` so old data never looks live. Live alert is a full red screen at EMERGENCY with `minsToDanger` as sent, the heat curve, "I'm on my way" and "Call 911" (opens the dialer via `tel:` with the number filled in, never dials by itself; a config flag can point it at a teammate for the demo)
 - [ ] "I'm on my way" posts to a new endpoint that only appends a fixed action-log entry (nothing from the request body is stored; size cap and rate limit); a test shows status, incident and ladder timers are unchanged. Second review for the `server/` change
 - [ ] The `app` Checks row is filled with `node --test "app/test/*.test.js"` over plain-JS helpers that don't import React Native. Manual: Home and Live alert match the team's design in Claude Design (link added to this issue before starting)
 Proven by: app, server, manual check on Expo Go

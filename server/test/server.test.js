@@ -17,7 +17,7 @@ after(() => new Promise((resolve) => server.close(resolve)));
 
 const status = (overrides = {}) => ({
   state: 'OCCUPANT', tempF: 88.2, presence: true, distanceCm: 30,
-  motion: null, minsToDanger: null, battery: null, ...overrides,
+  minsToDanger: null, ...overrides,
 });
 
 const post = (body) => fetch(base, {
@@ -47,12 +47,16 @@ test('POST /status keeps the latest valid status', async () => {
   });
 });
 
-test('POST /status accepts the old firmware line with humidity and the new one without', async () => {
+test('POST /status accepts old firmware lines (humidity, motion, battery) and the new one without', async () => {
   const before = await get();
   const oldLine = '{"state":"OCCUPANT","tempF":88.2,"humidity":41,"presence":true,"distanceCm":30,"motion":null,"minsToDanger":null,"battery":null}';
-  const newLine = '{"state":"OCCUPANT","tempF":88.2,"presence":true,"distanceCm":30,"motion":null,"minsToDanger":null,"battery":null}';
-  assert.equal((await post(oldLine)).status, 200);
-  assert.equal((await get()).online, true);
+  const noHumidityLine = '{"state":"OCCUPANT","tempF":88.2,"presence":true,"distanceCm":30,"motion":null,"minsToDanger":null,"battery":null}';
+  const oddLegacyLine = '{"state":"OCCUPANT","tempF":88.2,"presence":true,"distanceCm":30,"motion":"yes","minsToDanger":null,"battery":"full","light":null}';
+  const newLine = '{"state":"OCCUPANT","tempF":88.2,"presence":true,"distanceCm":30,"minsToDanger":null}';
+  for (const line of [oldLine, noHumidityLine, oddLegacyLine]) {
+    assert.equal((await post(line)).status, 200, line);
+    assert.equal((await get()).online, true);
+  }
   assert.equal((await post(newLine)).status, 200);
   assert.deepEqual(await get(), { online: true, lastSeen: before.lastSeen, status: JSON.parse(newLine) });
   assert.equal((await post(before.status)).status, 200); // restore for the tests below

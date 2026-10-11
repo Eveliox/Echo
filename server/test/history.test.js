@@ -17,7 +17,7 @@ after(() => rmSync(tmp, { recursive: true, force: true }));
 
 const status = (overrides = {}) => ({
   state: 'OCCUPANT', tempF: 88.2, presence: true, distanceCm: 30,
-  motion: null, minsToDanger: null, battery: null, ...overrides,
+  minsToDanger: null, ...overrides,
 });
 
 // Starts `server` on a random port; returns its base URL and a closer.

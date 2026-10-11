@@ -2,22 +2,11 @@
 // Reads the sensors, runs the alert logic, and sends one status line every
 // STATUS_PERIOD_MS to USB Serial and to the ESP8266 on Serial1.
 // If the power-up seat baseline fails, it shows a fault code on the RGB LED
-// until a power cycle with the seat empty. The RGB LED, buzzer, and LCD follow
-// the alert level. Each temperature reading also feeds minutes to danger,
-// which can raise WARNING and EMERGENCY and is sent and shown on the LCD.
-//
-// Libraries: the built-in LiquidCrystal.
-
-#include <LiquidCrystal.h>
+// until a power cycle with the seat empty. The RGB LED and buzzer follow the
+// alert level. Each temperature reading also feeds minutes to danger, which
+// can raise WARNING and EMERGENCY and is sent in the status line.
 
 #include "logic.h"
-
-// Test-only: the joystick replaces the LM35. Must be false for the demo.
-const bool SIMULATE_TEMP = false;
-
-// True once the two 10k resistors on A0 are in (docs/firmware.md, "Power").
-// False: `battery` is always sent as null and A0 is never read.
-const bool BATTERY_DIVIDER_WIRED = false;
 
 // Pins: docs/firmware.md, "Mega pin map".
 const uint8_t IGNITION_PIN = 4;  // jumper to GND: plugged in (LOW) = car on
@@ -25,16 +14,9 @@ const uint8_t CANCEL_PIN = 5;    // button to GND: pressed = LOW
 const uint8_t US_ECHO_PIN = 6;
 const uint8_t US_TRIG_PIN = 7;
 const uint8_t BUZZER_PIN = 8;  // tone() only
-const uint8_t LCD_RS_PIN = 22;
-const uint8_t LCD_E_PIN = 23;
-const uint8_t LCD_D4_PIN = 24;
-const uint8_t LCD_D5_PIN = 25;
-const uint8_t LCD_D6_PIN = 26;
-const uint8_t LCD_D7_PIN = 27;
 const uint8_t RGB_RED_PIN = 44;
 const uint8_t RGB_GREEN_PIN = 45;
 const uint8_t RGB_BLUE_PIN = 46;
-const uint8_t BATTERY_PIN = A0;
 const uint8_t LM35_PIN = A1;
 
 // tone() owns the timer behind these two pins, so no PWM output may use them
@@ -52,7 +34,6 @@ static_assert(clearOfToneTimer(RGB_BLUE_PIN),
               "RGB_BLUE_PIN is on the tone() timer: see CLAUDE.md hardware rule on pins 9 and 10");
 static_assert(clearOfToneTimer(BUZZER_PIN),
               "BUZZER_PIN is on the tone() timer: see CLAUDE.md hardware rule on pins 9 and 10");
-const uint8_t JOY_X_PIN = A3;
 
 const unsigned long SERIAL_BAUD = 115200UL;
 
@@ -66,8 +47,6 @@ const unsigned long PING_TIMEOUT_US = 25000UL;
 const unsigned long PING_GAP_MS = 60UL;
 const float US_PER_CM = 58.0f;  // round-trip microseconds per cm
 
-LiquidCrystal lcd(LCD_RS_PIN, LCD_E_PIN, LCD_D4_PIN, LCD_D5_PIN, LCD_D6_PIN, LCD_D7_PIN);
-
 AlertState alertState;
 SeatDetector seat;
 Debouncer cancelButton;
@@ -75,25 +54,19 @@ Periodic statusTimer;
 LevelClock levelClock;
 TempHistory tempHistory;
 
-float tempF = SIM_START_F;
-float simTempF = SIM_START_F;
-unsigned long lastSimUpdate = 0;
+// Set from the LM35 in setup() before the first status line.
+float tempF = 0.0f;
 // Last good distance: the server needs a number, so a failed read repeats the
 // previous value instead of breaking the line.
 float distanceCm = 0.0f;
 // From tempHistory after each temperature reading; NaN = null (unknown).
 float minsToDanger = NAN;
-// 0-100, or BATTERY_NULL (null) without the divider or without a pack.
-int8_t battery = BATTERY_NULL;
 
 // Off during setup() so the power-up baseline pings don't flash the fault code.
 bool outputsLive = false;
 
 // Frequency tone() is playing now; 0 = silent. tone() is only called on a change.
 uint16_t buzzerPlayingHz = 0;
-
-// What the LCD shows now, so a line is only rewritten when its text changes.
-char lcdShown[LCD_ROWS][LCD_LINE_BUF] = {"", ""};
 
 void updateOutputs(uint32_t now);
 
@@ -125,25 +98,7 @@ float readLM35F() {
   return lm35AdcToF(total / 10.0f);
 }
 
-float readSimulatedF() {
-  unsigned long now = millis();
-  simTempF = simTempStep(simTempF, analogRead(JOY_X_PIN), now - lastSimUpdate);
-  lastSimUpdate = now;
-  return simTempF;
-}
-
-float readBatteryAdc() {
-  long total = 0;
-  for (int i = 0; i < 10; i++) {
-    total += analogRead(BATTERY_PIN);
-    waitMs(2);
-  }
-  return total / 10.0f;
-}
-
-float readTempF() { return SIMULATE_TEMP ? readSimulatedF() : readLM35F(); }
-
-// Ultrasonic, temperature, and battery: once per status period.
+// Ultrasonic and temperature: once per status period.
 void readSlowSensors() {
   float pings[SEAT_PINGS_PER_READING];
   for (uint8_t i = 0; i < SEAT_PINGS_PER_READING; i++) pings[i] = pingCm();
@@ -151,13 +106,10 @@ void readSlowSensors() {
   float median;
   if (seatMedianCm(pings, median)) distanceCm = median;
 
-  float t = readTempF();
+  float t = readLM35F();
   if (!isnan(t)) tempF = t;
   tempHistoryAdd(tempHistory, t, millis());  // skips a failed (NaN) reading
   minsToDanger = tempHistoryMinsToDanger(tempHistory, tempF);
-
-  float batteryAdc = BATTERY_DIVIDER_WIRED ? readBatteryAdc() : 0.0f;
-  battery = batteryStatus(BATTERY_DIVIDER_WIRED, batteryAdc);
 }
 
 void sendStatus() {
@@ -167,7 +119,6 @@ void sendStatus() {
   f.presence = seat.occupied;
   f.distanceCm = distanceCm;
   f.minsToDanger = minsToDanger;
-  f.battery = battery;
   char line[STATUS_LINE_MAX];
   if (statusFormat(line, sizeof line, f) == 0) return;
   Serial.println(line);
@@ -205,21 +156,6 @@ void updateOutputs(uint32_t now) {
   setBuzzer(buzzerHz(alertState.level, inLevel));
 }
 
-void showLcdLine(uint8_t row, const char *text) {
-  if (strcmp(text, lcdShown[row]) == 0) return;
-  lcd.setCursor(0, row);
-  lcd.print(text);  // always a full, space-padded line: no clear needed
-  strcpy(lcdShown[row], text);
-}
-
-void updateLcd(uint32_t now) {
-  char line[LCD_LINE_BUF];
-  lcdLine1(line, alertState.level, tempF);
-  showLcdLine(0, line);
-  lcdLine2(line, alertState.level, minsToDanger, SIMULATE_TEMP, now);
-  showLcdLine(1, line);
-}
-
 void printBaselineFault() {
   Serial.println(F("# seat baseline failed: check the ultrasonic"));
 }
@@ -238,13 +174,6 @@ void setup() {
   pinMode(RGB_BLUE_PIN, OUTPUT);
   setRgb(RGB_OFF);
   noTone(BUZZER_PIN);
-  lcd.begin(LCD_COLS, LCD_ROWS);
-  lcd.clear();
-
-  if (SIMULATE_TEMP) {
-    // Not JSON, so the ESP drops it; only the Serial Monitor sees it.
-    Serial.println(F("# SIMULATE_TEMP on: temperature comes from the joystick"));
-  }
 
   // Seat baseline: the seat must be empty at power-up.
   float samples[SEAT_BASELINE_SAMPLES];
@@ -255,8 +184,7 @@ void setup() {
     printBaselineFault();
   }
 
-  tempF = SIMULATE_TEMP ? SIM_START_F : readLM35F();
-  lastSimUpdate = millis();
+  tempF = readLM35F();
   tempHistoryInit(tempHistory);
 
   alertInit(alertState);
@@ -282,7 +210,6 @@ void loop() {
   alertStep(alertState, in);
   levelClockUpdate(levelClock, alertState.level, millis());
   updateOutputs(millis());
-  updateLcd(millis());
 
   if (due) {
     sendStatus();

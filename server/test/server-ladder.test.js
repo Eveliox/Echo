@@ -11,7 +11,7 @@ const env = {
 
 const status = (state) => ({
   state, tempF: 104.5, presence: true, distanceCm: 30,
-  motion: null, minsToDanger: 0, battery: null,
+  minsToDanger: 0,
 });
 
 // Two servers: one live with a fake dialer, one with ECHO_CALLS unset.

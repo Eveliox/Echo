@@ -19,7 +19,7 @@ const config = readConfig({
 
 const status = (state) => ({
   state, tempF: 104.5, presence: true, distanceCm: 30,
-  motion: null, minsToDanger: 2, battery: null,
+  minsToDanger: 2,
 });
 
 const LADDER_CALL = /^calls: \[not live\b[^\]]*\] would call (\w+) .* for emergency, ladder step (\d):/;

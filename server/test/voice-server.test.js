@@ -20,7 +20,7 @@ const SECRET = 'a3f9c2e17b54d08e6f1a2b3c4d5e6f70';
 const contacts = [{ name: 'Mom', number: '+15550000001' }, { name: 'Alex', number: '+15550000002' }];
 const names = contacts.map((c) => c.name);
 const status = (state) => ({
-  state, tempF: 104.5, presence: true, distanceCm: 30, motion: null, minsToDanger: 3, battery: null,
+  state, tempF: 104.5, presence: true, distanceCm: 30, minsToDanger: 3,
 });
 
 // A voice server wired to a real tracker and Responder (fake model, fake call,

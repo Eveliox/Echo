@@ -16,7 +16,7 @@ const numbers = ['+15550000000', '+15550000001', '+15550000002', 'AC123', 'tok']
 
 const status = (state) => ({
   state, tempF: 104.5, presence: true, distanceCm: 30,
-  motion: null, minsToDanger: 0, battery: null,
+  minsToDanger: 0,
 });
 
 // A live server (fake dialer), a not-live one, and a live one whose every

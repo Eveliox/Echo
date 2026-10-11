@@ -20,14 +20,14 @@ Echo is a roughly $40 dashboard box that detects an occupied seat in a parked ca
 
 | Track | How we hit it |
 | --- | --- |
-| Encompass: Data Capturing Hardware | The box captures seat presence, cabin heat, sunlight, and motion every 2 s and turns them into a life-saving alert |
-| Databricks: Best Use of Databricks | Log every heat test; predict minutes-to-danger from temperature, sunlight, and time of day; feed predictions into the app's Heat insights screen |
+| Encompass: Data Capturing Hardware | The box captures seat presence and cabin heat every 2 s and turns them into a life-saving alert |
+| Databricks: Best Use of Databricks | Log every heat test; predict minutes-to-danger from temperature and time of day; feed predictions into the app's Heat insights screen |
 | Figma: Best Design | Clear, accessible app flow for a panicked parent: big status, one-tap actions, plain words |
 | Adobe: Prettiest Hack | Cohesive visual style across the app, dashboard, and box; animated heat curve and countdown |
 
 ## How it works
 
-1. **The box (Arduino Mega 2560):** reads the seat (ultrasonic), cabin heat (LM35), sunlight (photoresistor), and optional motion (PIR); sets the alert level; alarms locally with an RGB LED, a passive-buzzer siren, and a 1602 LCD. It never needs the internet.
+1. **The box (Arduino Mega 2560):** reads the seat (ultrasonic) and cabin heat (LM35); sets the alert level; alarms locally with an RGB LED and a passive-buzzer siren. It never needs the internet.
 2. **Wi-Fi modem (ESP8266 NodeMCU):** forwards the Mega's JSON status line every 2 s to the laptop server over a 2.4 GHz phone hotspot. Pulling it out does not stop the alarm.
 3. **Server (laptop):** listens on port 3000 at `POST /status`; shows the live dashboard; marks the box offline after 10 s of silence; runs the plain-code backup call ladder.
 4. **Responder agent (Gemini + Twilio voice):** takes over contacting people at Emergency.
@@ -35,7 +35,7 @@ Echo is a roughly $40 dashboard box that detects an occupied seat in a parked ca
 
 **Alert levels:** `IDLE` → `ARMED` → `OCCUPANT` → `WARNING` → `EMERGENCY`. Levels only climb on their own. Only the physical cancel button or the ignition clears an alarm.
 
-**Thresholds (real hot-car values, LM35):** WARNING at 95°F (35°C) or 10 min or less to danger; EMERGENCY at 104°F (40°C) or 5 min or less. A hair dryer reaches them in under a minute. For testing, a joystick simulates the cabin heating (`SIMULATE_TEMP`); the LCD shows SIM so test runs are never mistaken for real readings.
+**Thresholds (real hot-car values, LM35):** WARNING at 95°F (35°C) or 10 min or less to danger; EMERGENCY at 104°F (40°C) or 5 min or less. A hair dryer reaches them in under a minute.
 
 **Backup ladder (plain code, runs no matter what):**
 
@@ -82,7 +82,7 @@ When the box hits Emergency, the agent phones the parent, talks with them live, 
 
 | Screen | What it shows |
 | --- | --- |
-| Home | The car's card: temperature, seat occupied, alert level, battery |
+| Home | The car's card: temperature, seat occupied, alert level |
 | Live alert | Full red screen: minutes-to-danger countdown, heat curve, "I'm on my way" and "Call 911" |
 | Agent feed | What the agent is doing now, e.g. "Called Mom, no answer. Calling Alex." |
 | Contacts | Who gets called, in what order |
@@ -95,10 +95,10 @@ Design rules: one action per screen, big text, plain words, works one-handed. Th
 
 Change these only with both teammates' agreement.
 
-**Box → server** (every 2 s; doubles as the heartbeat). `light` is pending both teammates' OK; `motion` is `null` if the PIR is unplugged:
+**Box → server** (every 2 s; doubles as the heartbeat). `light`, `motion`, and `battery` were removed with their parts (both teammates agreed); the server ignores them from older firmware:
 
 ```json
-{ "state": "WARNING", "tempF": 96.4, "light": 812, "presence": true, "distanceCm": 38, "motion": false, "minsToDanger": 7.5, "battery": 88 }
+{ "state": "WARNING", "tempF": 96.4, "presence": true, "distanceCm": 38, "minsToDanger": 7.5 }
 ```
 
 **Challenger scenario:**
@@ -132,7 +132,7 @@ Change these only with both teammates' agreement.
 | --- | --- | --- |
 | 0–3 | Fri 10 PM – 1 AM | Box wired, live data flowing, simulator replaying recordings |
 | 3–10 | Sat 1 AM – 8 AM | Alert levels on the box, dashboard live, first test call |
-| 10–16 | Sat 8 AM – 2 PM | Time to danger, battery fail-safe, Challenger running, Databricks notebook |
+| 10–16 | Sat 8 AM – 2 PM | Time to danger, Challenger running, Databricks notebook |
 | **16** | **Sat 2 PM** | **Checkpoint: full demo works end to end** |
 | 16–24 | Sat 2 PM – 10 PM | Calling agent, Expo app, fixes from the Challenger |
 | 24–28 | Sat 10 PM – Sun 2 AM | Test trials and numbers, enclosure, prop car |

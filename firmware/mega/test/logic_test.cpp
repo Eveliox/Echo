@@ -520,11 +520,7 @@ static bool near(float a, float b, float tol = 0.01f) { return fabsf(a - b) < to
 
 static void test_timing_constants_match_doc() {
   CHECK(STATUS_PERIOD_MS == 2000UL);
-  CHECK(SIM_START_F == 80.0f);
-  CHECK(SIM_MIN_F == 60.0f);
-  CHECK(SIM_MAX_F == 140.0f);
-  CHECK(SIM_MAX_RATE_F_PER_S == 0.5f);
-  CHECK(SIM_JOY_DEAD_ZONE == 50);
+  CHECK(ADC_REF_V == 5.0f && ADC_MAX == 1023.0f);
 }
 
 static void test_lm35_conversion() {
@@ -533,28 +529,6 @@ static void test_lm35_conversion() {
   CHECK(near(lm35AdcToF(0.25f / 5.0f * 1023.0f), 77.0f));
   // 0.40 V = 40 C = 104 F.
   CHECK(near(lm35AdcToF(0.40f / 5.0f * 1023.0f), 104.0f));
-}
-
-static void test_sim_dead_zone_holds() {
-  CHECK(near(simTempStep(80.0f, 512, 2000), 80.0f));
-  CHECK(near(simTempStep(80.0f, 512 + 49, 2000), 80.0f));
-  CHECK(near(simTempStep(80.0f, 512 - 49, 2000), 80.0f));
-  CHECK(simTempStep(80.0f, 512 + 50, 2000) > 80.0f);
-}
-
-static void test_sim_full_push_warms_half_degree_per_second() {
-  // Full right (1023) is just under +512 offset; 2 s -> about +1 F.
-  CHECK(near(simTempStep(80.0f, 1024, 2000), 81.0f));
-  CHECK(near(simTempStep(80.0f, 0, 2000), 79.0f));
-  // 80 F to 104 F in about 48 s of full push, stepped every 2 s.
-  float f = 80.0f;
-  for (int i = 0; i < 24; i++) f = simTempStep(f, 1024, 2000);
-  CHECK(near(f, 104.0f));
-}
-
-static void test_sim_clamps() {
-  CHECK(near(simTempStep(139.9f, 1024, 60000), SIM_MAX_F));
-  CHECK(near(simTempStep(60.1f, 0, 60000), SIM_MIN_F));
 }
 
 static void test_periodic_first_call_then_every_period() {
@@ -669,7 +643,6 @@ static StatusFields sampleFields() {
   f.presence = true;
   f.distanceCm = 38.0f;
   f.minsToDanger = NAN;
-  f.battery = BATTERY_NULL;
   return f;
 }
 
@@ -679,26 +652,30 @@ static void test_status_line_exact_format() {
   uint16_t n = statusFormat(buf, sizeof buf, f);
   const char *want =
       "{\"state\":\"WARNING\",\"tempF\":96.4,\"presence\":true,"
-      "\"distanceCm\":38,\"motion\":null,\"minsToDanger\":null,\"battery\":null}";
+      "\"distanceCm\":38,\"minsToDanger\":null}";
   CHECK(strcmp(buf, want) == 0);
   CHECK(n == strlen(want));
   if (strcmp(buf, want) != 0) printf("  got  %s\n  want %s\n", buf, want);
 }
 
-static void test_status_line_has_doc_fields_in_order_without_light() {
+static void test_status_line_has_doc_fields_in_order() {
   char buf[STATUS_LINE_MAX];
   StatusFields f = sampleFields();
   statusFormat(buf, sizeof buf, f);
   const char *order[] = {"\"state\":", "\"tempF\":", "\"presence\":",
-                         "\"distanceCm\":", "\"motion\":", "\"minsToDanger\":",
-                         "\"battery\":"};
+                         "\"distanceCm\":", "\"minsToDanger\":"};
   const char *prev = buf;
   for (unsigned i = 0; i < sizeof order / sizeof order[0]; i++) {
     const char *at = strstr(buf, order[i]);
     CHECK(at != NULL && at >= prev);
     if (at) prev = at;
   }
+  // Removed parts' fields are never sent (docs/firmware.md, "Data format and Wi-Fi").
   CHECK(strstr(buf, "light") == NULL);
+  CHECK(strstr(buf, "motion") == NULL);
+  CHECK(strstr(buf, "battery") == NULL);
+  CHECK(strstr(buf, "humidity") == NULL);
+  CHECK(buf[strlen(buf) - 1] == '}');
   CHECK(buf[0] == '{');  // the ESP drops lines that don't start with {
   CHECK(strchr(buf, '\n') == NULL);
 }
@@ -775,125 +752,7 @@ static void test_status_line_never_overflows() {
 }
 
 // ---------------------------------------------------------------------------
-// Battery
-// ---------------------------------------------------------------------------
-
-// A0 ADC reading for a pack at `packV`, through the diode and the divider,
-// written with the doc's literals rather than the header's constants.
-static float adcForPack(float packV) { return (packV - 0.7f) / 2.0f / 5.0f * 1023.0f; }
-
-// Pins the doc's empty/full pack voltages and the divider (docs/firmware.md,
-// "Power") with literals.
-static void test_battery_constants_match_doc() {
-  CHECK(BATTERY_EMPTY_V == 7.0f);
-  CHECK(BATTERY_FULL_V == 9.0f);
-  CHECK(BATTERY_DIVIDER_RATIO == 2.0f);  // 10k over 10k
-  CHECK(BATTERY_DIODE_DROP_V == 0.7f);
-  CHECK(BATTERY_NO_PACK_V > 0.0f && BATTERY_NO_PACK_V < 7.0f - 1.0f);
-  CHECK(ADC_REF_V == 5.0f && ADC_MAX == 1023.0f);
-}
-
-static void test_battery_adc_to_pack_volts() {
-  // Full ADC scale: 5 V at A0 = 10 V at VIN = 10.7 V at the pack.
-  CHECK(near(batteryAdcToPackV(1023.0f), 10.7f));
-  // Half scale: 2.5 V at A0 = 5 V at VIN = 5.7 V at the pack.
-  CHECK(near(batteryAdcToPackV(511.5f), 5.7f));
-  CHECK(near(batteryAdcToPackV(adcForPack(7.0f)), 7.0f));
-  CHECK(near(batteryAdcToPackV(adcForPack(9.0f)), 9.0f));
-}
-
-static void test_battery_percent_maps_doc_voltages() {
-  CHECK(batteryPercent(7.0f) == 0);
-  CHECK(batteryPercent(9.0f) == 100);
-  CHECK(batteryPercent(8.0f) == 50);
-  CHECK(batteryPercent(7.5f) == 25);
-  CHECK(batteryPercent(8.76f) == 88);
-  CHECK(batteryFromAdc(adcForPack(7.0f)) == 0);
-  CHECK(batteryFromAdc(adcForPack(8.0f)) == 50);
-  CHECK(batteryFromAdc(adcForPack(9.0f)) == 100);
-}
-
-static void test_battery_percent_clamps() {
-  CHECK(batteryPercent(6.0f) == 0);   // a weak pack, still connected
-  CHECK(batteryPercent(6.99f) == 0);
-  CHECK(batteryPercent(9.01f) == 100);
-  CHECK(batteryPercent(9.6f) == 100);  // fresh alkalines read above 9 V
-  CHECK(batteryPercent(12.0f) == 100);
-  CHECK(batteryPercent(INFINITY) == 100);
-  CHECK(batteryFromAdc(1023.0f) == 100);  // A0 at the rail
-}
-
-static void test_battery_percent_rounds_to_nearest() {
-  CHECK(batteryPercent(7.026f) == 1);  // 1.3 %
-  CHECK(batteryPercent(7.034f) == 2);  // 1.7 %
-  CHECK(batteryPercent(8.986f) == 99);  // 99.3 %
-  CHECK(batteryPercent(8.994f) == 100);  // 99.7 %
-}
-
-// No pack (laptop USB only): A0 near 0, or VIN back-fed a few volts, must be
-// null, never a false "battery empty" 0 %.
-static void test_battery_no_pack_is_null() {
-  CHECK(batteryFromAdc(0.0f) == BATTERY_NULL);
-  CHECK(batteryFromAdc(5.0f) == BATTERY_NULL);
-  CHECK(batteryPercent(0.7f) == BATTERY_NULL);
-  CHECK(batteryPercent(4.0f) == BATTERY_NULL);
-  CHECK(batteryPercent(5.0f) == BATTERY_NULL);  // VIN back-fed to about 4.3 V
-  CHECK(batteryPercent(BATTERY_NO_PACK_V - 0.01f) == BATTERY_NULL);
-  CHECK(batteryPercent(BATTERY_NO_PACK_V) == 0);  // inclusive: a pack, empty
-  CHECK(batteryPercent(NAN) == BATTERY_NULL);
-  CHECK(batteryPercent(-INFINITY) == BATTERY_NULL);
-  CHECK(batteryFromAdc(adcForPack(4.0f)) == BATTERY_NULL);
-}
-
-// BATTERY_DIVIDER_WIRED false: always null, whatever the floating A0 reads.
-static void test_battery_status_null_without_divider() {
-  float adcs[] = {0.0f, adcForPack(8.0f), 1023.0f};
-  for (unsigned i = 0; i < sizeof adcs / sizeof adcs[0]; i++) {
-    CHECK(batteryStatus(false, adcs[i]) == BATTERY_NULL);
-  }
-  CHECK(batteryStatus(true, adcForPack(8.0f)) == 50);
-  CHECK(batteryStatus(true, adcForPack(9.0f)) == 100);
-  CHECK(batteryStatus(true, 0.0f) == BATTERY_NULL);
-}
-
-static void test_status_line_battery_number_or_null() {
-  char buf[STATUS_LINE_MAX];
-  StatusFields f = sampleFields();
-  f.battery = 88;
-  uint16_t n = statusFormat(buf, sizeof buf, f);
-  const char *want =
-      "{\"state\":\"WARNING\",\"tempF\":96.4,\"presence\":true,"
-      "\"distanceCm\":38,\"motion\":null,\"minsToDanger\":null,\"battery\":88}";
-  CHECK(strcmp(buf, want) == 0);
-  CHECK(n == strlen(want));
-  if (strcmp(buf, want) != 0) printf("  got  %s\n  want %s\n", buf, want);
-
-  f.battery = 0;
-  CHECK(statusFormat(buf, sizeof buf, f) > 0);
-  CHECK(strstr(buf, "\"battery\":0}") != NULL);
-  f.battery = 100;
-  CHECK(statusFormat(buf, sizeof buf, f) > 0);
-  CHECK(strstr(buf, "\"battery\":100}") != NULL);
-
-  int8_t nulls[] = {BATTERY_NULL, -128, 101, 127};
-  for (unsigned i = 0; i < sizeof nulls / sizeof nulls[0]; i++) {
-    f.battery = nulls[i];
-    CHECK(statusFormat(buf, sizeof buf, f) > 0);
-    CHECK(strstr(buf, "\"battery\":null}") != NULL);
-  }
-
-  // The longest possible line, with a battery number, still fits.
-  f.level = LEVEL_EMERGENCY;
-  f.tempF = -99999.9f;
-  f.distanceCm = -99999.0f;
-  f.minsToDanger = 99999.9f;
-  f.battery = 100;
-  n = statusFormat(buf, sizeof buf, f);
-  CHECK(n > 0 && n < STATUS_LINE_MAX);
-}
-
-// ---------------------------------------------------------------------------
-// Local alarm: LED, buzzer, LCD
+// Local alarm: LED and buzzer
 // ---------------------------------------------------------------------------
 
 static bool sameColor(RgbColor a, RgbColor b) {
@@ -909,7 +768,6 @@ static void test_alarm_constants_match_doc() {
   CHECK(CHIRP_PERIOD_MS == 5000UL);
   CHECK(BEEP_PERIOD_MS == 1000UL);
   CHECK(SIREN_LOW_HZ == 600 && SIREN_HIGH_HZ == 1200);
-  CHECK(LCD_COLS == 16 && LCD_ROWS == 2);
 }
 
 static void test_level_clock_restarts_on_level_change_only() {
@@ -1044,108 +902,6 @@ static void test_buzzer_emergency_siren_sweeps_up_and_down() {
   }
 }
 
-static void test_lcd_line1_level_and_temp() {
-  char line[LCD_LINE_BUF];
-  lcdLine1(line, LEVEL_WARNING, 96.4f);
-  CHECK(strcmp(line, "WARNING    96.4F") == 0);
-  lcdLine1(line, LEVEL_EMERGENCY, 104.0f);
-  CHECK(strcmp(line, "EMERGENCY 104.0F") == 0);
-  lcdLine1(line, LEVEL_IDLE, 80.0f);
-  CHECK(strcmp(line, "IDLE       80.0F") == 0);
-  lcdLine1(line, LEVEL_ARMED, 79.96f);
-  CHECK(strcmp(line, "ARMED      80.0F") == 0);
-  lcdLine1(line, LEVEL_OCCUPANT, -5.04f);
-  CHECK(strcmp(line, "OCCUPANT   -5.0F") == 0);
-  lcdLine1(line, LEVEL_OCCUPANT, NAN);
-  CHECK(strcmp(line, "OCCUPANT   --.-F") == 0);
-}
-
-// Every combination is exactly 16 characters, so overwriting needs no clear.
-static void test_lcd_lines_always_exactly_16_chars() {
-  float temps[] = {-1e9f, -100.0f, -99.9f, 0.0f, 9.9f, 99.9f, 140.0f, 999.9f, 1000.0f, NAN, INFINITY};
-  float mins[] = {NAN, -1.0f, 0.0f, 2.1f, 99.99f, 999.9f, 999.95f, 1e9f, INFINITY};
-  AlertLevel levels[] = {LEVEL_IDLE, LEVEL_ARMED, LEVEL_OCCUPANT, LEVEL_WARNING, LEVEL_EMERGENCY};
-  for (unsigned l = 0; l < 5; l++) {
-    for (unsigned i = 0; i < sizeof temps / sizeof temps[0]; i++) {
-      char buf[LCD_LINE_BUF + 4];
-      memset(buf, 'x', sizeof buf);
-      lcdLine1(buf, levels[l], temps[i]);
-      CHECK(strlen(buf) == LCD_COLS);
-      CHECK(strncmp(buf, alertLevelName(levels[l]), strlen(alertLevelName(levels[l]))) == 0);
-      for (unsigned k = LCD_LINE_BUF; k < sizeof buf; k++) CHECK(buf[k] == 'x');
-    }
-    for (unsigned i = 0; i < sizeof mins / sizeof mins[0]; i++) {
-      for (int sim = 0; sim < 2; sim++) {
-        for (uint32_t now = 0; now < SIM_LCD_PERIOD_MS; now += SIM_LCD_PERIOD_MS / 4) {
-          char buf[LCD_LINE_BUF + 4];
-          memset(buf, 'x', sizeof buf);
-          lcdLine2(buf, levels[l], mins[i], sim == 1, now);
-          CHECK(strlen(buf) == LCD_COLS);
-          for (unsigned k = LCD_LINE_BUF; k < sizeof buf; k++) CHECK(buf[k] == 'x');
-        }
-      }
-    }
-  }
-}
-
-static void test_lcd_line2_per_level() {
-  char line[LCD_LINE_BUF];
-  lcdLine2(line, LEVEL_IDLE, NAN, false, 0);
-  CHECK(strcmp(line, "CAR ON          ") == 0);
-  lcdLine2(line, LEVEL_ARMED, NAN, false, 0);
-  CHECK(strcmp(line, "SEAT EMPTY      ") == 0);
-  lcdLine2(line, LEVEL_OCCUPANT, 7.5f, false, 0);
-  CHECK(strcmp(line, "SEAT OCCUPIED   ") == 0);
-  lcdLine2(line, LEVEL_WARNING, 7.5f, false, 0);
-  CHECK(strcmp(line, "DANGER IN 7.5m  ") == 0);
-  lcdLine2(line, LEVEL_EMERGENCY, 2.1f, false, 0);
-  CHECK(strcmp(line, "DANGER IN 2.1m  ") == 0);
-  lcdLine2(line, LEVEL_EMERGENCY, 0.0f, false, 0);
-  CHECK(strcmp(line, "DANGER IN 0.0m  ") == 0);
-  lcdLine2(line, LEVEL_WARNING, 123.44f, false, 0);
-  CHECK(strcmp(line, "DANGER IN 123.4m") == 0);
-}
-
-// Unknown minutes to danger (null) shows a placeholder.
-static void test_lcd_line2_unknown_and_huge_minutes() {
-  char line[LCD_LINE_BUF];
-  lcdLine2(line, LEVEL_WARNING, NAN, false, 0);
-  CHECK(strcmp(line, "DANGER IN --.-m ") == 0);
-  lcdLine2(line, LEVEL_EMERGENCY, -0.5f, false, 0);
-  CHECK(strcmp(line, "DANGER IN --.-m ") == 0);
-  lcdLine2(line, LEVEL_WARNING, 999.94f, false, 0);
-  CHECK(strcmp(line, "DANGER IN 999.9m") == 0);
-  lcdLine2(line, LEVEL_WARNING, 999.95f, false, 0);
-  CHECK(strcmp(line, "DANGER IN >999m ") == 0);
-  lcdLine2(line, LEVEL_WARNING, INFINITY, false, 0);
-  CHECK(strcmp(line, "DANGER IN >999m ") == 0);
-}
-
-static void test_lcd_shows_sim_when_simulating() {
-  char line[LCD_LINE_BUF];
-  uint32_t half = SIM_LCD_PERIOD_MS / 2;
-  AlertLevel levels[] = {LEVEL_IDLE, LEVEL_ARMED, LEVEL_OCCUPANT, LEVEL_WARNING, LEVEL_EMERGENCY};
-  for (unsigned l = 0; l < 5; l++) {
-    // Simulating: SIM shows in the second half of every cycle.
-    lcdLine2(line, levels[l], 2.1f, true, 5 * SIM_LCD_PERIOD_MS + half);
-    CHECK(strcmp(line, "SIMULATED TEMP  ") == 0);
-    lcdLine2(line, levels[l], 2.1f, true, 5 * SIM_LCD_PERIOD_MS + SIM_LCD_PERIOD_MS - 1);
-    CHECK(strstr(line, "SIM") != NULL);
-    // The level text still shows in the first half.
-    lcdLine2(line, levels[l], 2.1f, true, 5 * SIM_LCD_PERIOD_MS + half - 1);
-    char plain[LCD_LINE_BUF];
-    lcdLine2(plain, levels[l], 2.1f, false, 0);
-    CHECK(strcmp(line, plain) == 0);
-    // Not simulating: never SIM.
-    for (uint32_t t = 0; t < 2 * SIM_LCD_PERIOD_MS; t += 50) {
-      lcdLine2(line, levels[l], 2.1f, false, t);
-      CHECK(strstr(line, "SIM") == NULL);
-    }
-  }
-  // SIM is on screen for a good share of the time, not a brief blip.
-  CHECK(half >= 1000UL);
-}
-
 
 // ---------------------------------------------------------------------------
 // Minutes to danger
@@ -1196,7 +952,7 @@ static void test_mins_doc_formula_with_literals() {
   CHECK(near(tempHistoryRateFPerMin(h), 0.06f, 0.0005f));
   float m = tempHistoryMinsToDanger(h, 80.0f);
   CHECK(m > 395.0f && m < 405.0f);
-  // Always a multiple of 0.1 (what the status line and LCD show).
+  // Always a multiple of 0.1 (what the status line shows).
   CHECK(near(m * 10.0f, floorf(m * 10.0f + 0.5f), 0.01f));
 }
 
@@ -1394,30 +1150,30 @@ static void test_status_line_mins_to_danger_number_or_null() {
   StatusFields f = sampleFields();
   f.minsToDanger = 7.5f;
   uint16_t n = statusFormat(buf, sizeof buf, f);
-  // The doc's example line, without the pending `light` and the unwired fields.
+  // The doc's example line.
   const char *want =
       "{\"state\":\"WARNING\",\"tempF\":96.4,\"presence\":true,"
-      "\"distanceCm\":38,\"motion\":null,\"minsToDanger\":7.5,\"battery\":null}";
+      "\"distanceCm\":38,\"minsToDanger\":7.5}";
   CHECK(strcmp(buf, want) == 0);
   CHECK(n == strlen(want));
   if (strcmp(buf, want) != 0) printf("  got  %s\n  want %s\n", buf, want);
 
   f.minsToDanger = 0.0f;
   CHECK(statusFormat(buf, sizeof buf, f) > 0);
-  CHECK(strstr(buf, "\"minsToDanger\":0.0,") != NULL);
+  CHECK(strstr(buf, "\"minsToDanger\":0.0}") != NULL);
   f.minsToDanger = 6.0333f;
   statusFormat(buf, sizeof buf, f);
-  CHECK(strstr(buf, "\"minsToDanger\":6.0,") != NULL);
+  CHECK(strstr(buf, "\"minsToDanger\":6.0}") != NULL);
   f.minsToDanger = 412.3f;
   statusFormat(buf, sizeof buf, f);
-  CHECK(strstr(buf, "\"minsToDanger\":412.3,") != NULL);
+  CHECK(strstr(buf, "\"minsToDanger\":412.3}") != NULL);
 
   // Unknown or unwritable: null, and the line is still sent.
   float nulls[] = {NAN, -0.1f, -INFINITY, INFINITY, 1e9f};
   for (unsigned i = 0; i < sizeof nulls / sizeof nulls[0]; i++) {
     f.minsToDanger = nulls[i];
     CHECK(statusFormat(buf, sizeof buf, f) > 0);
-    CHECK(strstr(buf, "\"minsToDanger\":null,") != NULL);
+    CHECK(strstr(buf, "\"minsToDanger\":null}") != NULL);
   }
 
   // The longest possible line still fits.
@@ -1427,17 +1183,6 @@ static void test_status_line_mins_to_danger_number_or_null() {
   f.minsToDanger = 99999.9f;
   n = statusFormat(buf, sizeof buf, f);
   CHECK(n > 0 && n < STATUS_LINE_MAX);
-}
-
-static void test_lcd_line2_shows_computed_minutes() {
-  TempHistory h;
-  tempHistoryInit(h);
-  addRamp(h, 0, 80.0f, 0.1f, 60);
-  char line[LCD_LINE_BUF];
-  lcdLine2(line, LEVEL_WARNING, tempHistoryMinsToDanger(h, 85.9f), false, 0);
-  CHECK(strcmp(line, "DANGER IN 6.0m  ") == 0);
-  lcdLine2(line, LEVEL_EMERGENCY, tempHistoryMinsToDanger(h, 104.0f), false, 0);
-  CHECK(strcmp(line, "DANGER IN 0.0m  ") == 0);
 }
 
 // The smoke check's synthetic recording, replayed through this file's box
@@ -2346,9 +2091,6 @@ int main() {
   test_ignition_beats_cancel();
   test_timing_constants_match_doc();
   test_lm35_conversion();
-  test_sim_dead_zone_holds();
-  test_sim_full_push_warms_half_degree_per_second();
-  test_sim_clamps();
   test_periodic_first_call_then_every_period();
   test_periodic_resyncs_after_long_stall();
   test_periodic_survives_wraparound();
@@ -2359,19 +2101,11 @@ int main() {
   test_fault_alarm_levels_win();
   test_fault_led_two_short_flashes_per_cycle();
   test_status_line_exact_format();
-  test_status_line_has_doc_fields_in_order_without_light();
+  test_status_line_has_doc_fields_in_order();
   test_status_line_every_state_name();
   test_status_line_number_rounding();
   test_status_line_rejects_non_finite_required_numbers();
   test_status_line_never_overflows();
-  test_battery_constants_match_doc();
-  test_battery_adc_to_pack_volts();
-  test_battery_percent_maps_doc_voltages();
-  test_battery_percent_clamps();
-  test_battery_percent_rounds_to_nearest();
-  test_battery_no_pack_is_null();
-  test_battery_status_null_without_divider();
-  test_status_line_battery_number_or_null();
   test_alarm_constants_match_doc();
   test_level_clock_restarts_on_level_change_only();
   test_led_idle_and_warning_solid();
@@ -2381,11 +2115,6 @@ int main() {
   test_buzzer_silent_when_idle_or_armed();
   test_buzzer_occupant_chirp_and_warning_beep();
   test_buzzer_emergency_siren_sweeps_up_and_down();
-  test_lcd_line1_level_and_temp();
-  test_lcd_lines_always_exactly_16_chars();
-  test_lcd_line2_per_level();
-  test_lcd_line2_unknown_and_huge_minutes();
-  test_lcd_shows_sim_when_simulating();
   test_mins_constants_match_doc();
   test_mins_null_until_two_minutes_of_samples();
   test_mins_doc_formula_with_literals();
@@ -2400,7 +2129,6 @@ int main() {
   test_mins_levels_still_only_climb();
   test_mins_box_run_starts_alarm_on_first_condition();
   test_status_line_mins_to_danger_number_or_null();
-  test_lcd_line2_shows_computed_minutes();
   test_recording_matches_box_logic();
   test_challenger_seeds_match_expected();
   test_challenger_seeds_cover_levels();

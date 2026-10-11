@@ -11,20 +11,17 @@ export const OFFLINE_AFTER_MS = 10_000;
 const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
 const isNumberOrNull = (v) => v === null || isNumber(v);
 const isBoolean = (v) => typeof v === 'boolean';
-const isBooleanOrNull = (v) => v === null || isBoolean(v);
 
-// Required fields. `light` is pending approval, so it is optional (checked below).
-// `humidity` is no longer a field (the DHT11 was removed). Boxes still on the
-// old firmware send it; like any unknown field it is ignored, whatever its
+// Required fields. `humidity`, `motion`, `battery`, and `light` are no longer
+// fields (their parts were removed from the box). Boxes still on old firmware
+// send some of them; like any unknown field they are ignored, whatever their
 // value, so an old box is never rejected and never looks offline.
 const FIELDS = {
   state: (v) => STATES.includes(v),
   tempF: isNumber,
   presence: isBoolean,
   distanceCm: isNumber,
-  motion: isBooleanOrNull,
   minsToDanger: isNumberOrNull,
-  battery: isNumberOrNull,
 };
 
 // Returns null if `body` is a valid status object, otherwise an error string.
@@ -36,7 +33,6 @@ export function validateStatus(body) {
     if (!(name in body)) return `missing field: ${name}`;
     if (!check(body[name])) return `bad value for ${name}`;
   }
-  if ('light' in body && !isNumber(body.light)) return 'bad value for light';
   return null;
 }
 

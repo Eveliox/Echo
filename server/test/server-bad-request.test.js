@@ -33,7 +33,7 @@ const raw = (method, target, p = port) => new Promise((resolve, reject) => {
 
 const status = (overrides = {}) => ({
   state: 'OCCUPANT', tempF: 88.2, presence: true, distanceCm: 30,
-  motion: null, minsToDanger: null, battery: null, ...overrides,
+  minsToDanger: null, ...overrides,
 });
 
 const base = (p = port) => `http://127.0.0.1:${p}`;

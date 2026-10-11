@@ -12,7 +12,7 @@ const contacts = [{ name: 'Mom', number: '+15550000001' }, { name: 'Alex', numbe
 
 const status = (state, overrides = {}) => ({
   state, tempF: 104.5, presence: true, distanceCm: 30,
-  motion: null, minsToDanger: 3, battery: null, ...overrides,
+  minsToDanger: 3, ...overrides,
 });
 
 // A Responder on a fake clock. `reply(input, n)` is the fake model (n counts

@@ -10,7 +10,7 @@ import { readConfig, missingCallSettings } from '../../server/calls.js';
 
 const last = {
   state: 'EMERGENCY', tempF: 110.5, presence: true, distanceCm: 38,
-  motion: null, minsToDanger: null, battery: null,
+  minsToDanger: null,
 };
 const snapshot = { online: true, lastSeen: 1, status: { ...last } };
 const ladder = 'calls: [not live, ECHO_CALLS is not "live"] would call Contact #1 (number not set) for emergency, ladder step 1: "..."';

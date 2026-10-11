@@ -6,7 +6,7 @@ import {
 
 const status = (overrides = {}) => ({
   state: 'WARNING', tempF: 96.4, presence: true, distanceCm: 38,
-  motion: false, minsToDanger: 7.5, battery: 88, ...overrides,
+  minsToDanger: 7.5, ...overrides,
 });
 
 test('values show exactly as sent, and "--" when null or missing', () => {

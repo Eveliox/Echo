@@ -325,3 +325,12 @@ Decision (David, with Eve's agreement): the DHT11 is physically removed and the 
 - Restyled the local browser dashboard from the supplied warm, translucent mobile reference: charcoal shell, amber-lit SVG cabin seat, cream typography, prominent Doto danger timer, responsive two-column layout, and action timeline. Uses existing local fonts and logo; no dependencies or remote assets. Mobile app unchanged.
 - Slow decorative lighting and entry motion respect reduced motion; emergency disables entry animation and brings the timer before the artwork. Existing stale readings and lost-alarm banner remain; data/polling/call behavior unchanged.
 - Checks: all 263 server tests passed. Installed Playwright checked 1440/768/390/320 widths, no horizontal overflow, emergency and lost-emergency states, reduced motion, and browser errors with intercepted synthetic preview data only. Screenshots in /tmp/echo-dashboard-{desktop,mobile,emergency}.png.
+
+## 2026-10-11 (David, unused parts removed)
+
+Decision (David, with Eve's agreement): the box has no joystick, photoresistor, A0 battery divider, 1602 LCD or PIR. All are removed from firmware (logic.h, mega.ino; LiquidCrystal is no longer needed), server validation, simulator recording and fixtures, notebook, app (Home shows only Seat) and docs. The `light`, `motion` and `battery` fields are gone. The status line is now state, tempF, presence, distanceCm, minsToDanger. #13 is dropped. The remaining box: Mega, ESP8266, HC-SR04 (D6/D7), LM35 (A1), RGB LED (D44–46), passive buzzer (D8), ignition jumper (D4), cancel button (D5). Free pins: D2, D3, D22–D27, A0, A2, A3.
+- Compatibility: the server accepts every older format (humidity, motion, battery, light; any value ignored) and the new line, pinned by unit and HTTP tests. Until the Mega is re-flashed, /status and the voice agent's get_car_status still carry the old null fields.
+- CLAUDE.md: the two SIMULATE_TEMP lines (hardware rule, demo readiness) were removed with David's OK, since the flag no longer exists.
+- docs/firmware.md also records the bench finding: while wired to the Mega, the ESP runs on Mega 5V → VIN (its USB chip holds RX high), so the "USB power bank" advice is replaced.
+- To do: re-flash the Mega (check the port with `arduino-cli board list`); re-import notebooks/heat_test.py into Databricks.
+- For Eve: the app's Home sensor row now has one cell, and model.test.js lost the battery zero case (decimal coverage remains in the viewModel tests).

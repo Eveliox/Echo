@@ -88,7 +88,7 @@ test('the request body a real turn sends holds contact names but never a phone n
   const actions = createActionLog();
   actions.record({ action: 'call', to: 'Mom', reason: 'ladder step 1: tempF 104.5, minsToDanger 2' });
   const status = {
-    state: 'EMERGENCY', tempF: 104.5, presence: true, distanceCm: 30, motion: null, minsToDanger: 2, battery: null,
+    state: 'EMERGENCY', tempF: 104.5, presence: true, distanceCm: 30, minsToDanger: 2,
   };
   const responder = createResponder({
     contacts,

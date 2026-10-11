@@ -59,9 +59,8 @@ test('every line is a status the server accepts, as the box sends it today', () 
   assert.ok(statuses.length > 0);
   statuses.forEach((s, i) => {
     assert.equal(validateStatus(s), null, `line ${i + 1}: ${lines[i]}`);
-    assert.ok(!('light' in s), `line ${i + 1}: light is pending, the box does not send it`);
-    assert.equal(s.motion, null, `line ${i + 1}`);
-    assert.equal(s.battery, null, `line ${i + 1}`);
+    assert.deepEqual(Object.keys(s), ['state', 'tempF', 'presence', 'distanceCm', 'minsToDanger'],
+      `line ${i + 1}: exactly the box's fields, in order`);
     assert.equal(s.minsToDanger, expectedMinsToDanger(temps, i), `line ${i + 1}: minsToDanger`);
   });
 });

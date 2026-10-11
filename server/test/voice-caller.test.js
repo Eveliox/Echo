@@ -19,7 +19,7 @@ const elevenLabs = { apiKey: 'fake-eleven-key', agentId: 'agent_fake', phoneNumb
 const names = ['Mom', 'Alex'];
 const status = {
   state: 'EMERGENCY', tempF: 103.25, presence: true, distanceCm: 30,
-  motion: null, minsToDanger: 2.5, battery: null,
+  minsToDanger: 2.5,
 };
 
 // A voice caller on a fake clock with a fake Twilio dial and a fake ElevenLabs

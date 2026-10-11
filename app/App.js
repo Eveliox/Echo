@@ -217,7 +217,7 @@ function EchoApp() {
         </> : <View style={styles.homeFooter}>
           {vm.online ? <>
             <View style={styles.sensors}>{sensorReadings(status).map((reading, index) => <View key={reading.label} style={[styles.sensor, index > 0 && styles.sensorDivider]}>
-              <Icon name={['seat', 'motion', 'battery'][index]} size={18} color={palette.muted} /><Text style={styles.sensorValue}>{reading.value}</Text><Text style={styles.sensorLabel}>{reading.label}</Text>
+              <Icon name="seat" size={18} color={palette.muted} /><Text style={styles.sensorValue}>{reading.value}</Text><Text style={styles.sensorLabel}>{reading.label}</Text>
             </View>)}</View>
             <Notice title="Stay close" icon="shield">If you left the car, go back now. The box sounds its own alarm if the cabin gets hot.</Notice>
           </> : vm.lostAlarm ? <>

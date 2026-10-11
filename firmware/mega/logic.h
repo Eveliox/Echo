@@ -141,8 +141,8 @@ inline bool seatUpdate(SeatDetector &s, const float pings[SEAT_PINGS_PER_READING
 //   after skipped readings the window reaches a little further back.
 // - At or above DANGER_TEMP_F the value is 0 even with too few samples or a
 //   low rate; that is known from the current reading alone.
-// - The value is rounded to 0.1 min, the precision the status line and LCD
-//   show, and the levels decide on that same value. Rounding can only make an
+// - The value is rounded to 0.1 min, the precision the status line shows,
+//   and the levels decide on that same value. Rounding can only make an
 //   alarm start earlier (by at most 3 s), never later.
 // - NaN means null. A negative value is never produced; callers treat one as
 //   null too.
@@ -325,8 +325,8 @@ inline AlertLevel alertStep(AlertState &s, const AlertInputs &in) {
 // --- end alert levels ------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Sensor conversions and timing ("Firmware behavior" and "Temperature
-// simulation" in docs/firmware.md). Pure math; the sketch does the reads.
+// Sensor conversions and timing ("Firmware behavior" in docs/firmware.md).
+// Pure math; the sketch does the reads.
 //
 // Decisions not in the doc (pinned by tests in test/logic_test.cpp):
 // - The 2 s status period is due on the very first call, then every period
@@ -343,32 +343,12 @@ static const uint32_t STATUS_PERIOD_MS = 2000UL;
 static const float ADC_REF_V = 5.0f;
 static const float ADC_MAX = 1023.0f;
 
-// Joystick simulation constants from docs/firmware.md "Temperature simulation".
-static const float SIM_START_F = 80.0f;
-static const float SIM_MIN_F = 60.0f;
-static const float SIM_MAX_F = 140.0f;
-static const float SIM_MAX_RATE_F_PER_S = 0.5f;
-static const int16_t SIM_JOY_CENTER = 512;
-static const int16_t SIM_JOY_DEAD_ZONE = 50;
-
 static const uint32_t CANCEL_DEBOUNCE_MS = 30UL;
 
 // Average LM35 ADC reading -> degrees F.
 inline float lm35AdcToF(float avgAdc) {
   float tempC = avgAdc * ADC_REF_V / ADC_MAX * 100.0f;
   return tempC * 9.0f / 5.0f + 32.0f;
-}
-
-// One simulation step: joystick X reading (0-1023) applied for `elapsedMs`.
-// Right warms, left cools, the dead zone holds; result is clamped.
-inline float simTempStep(float simF, int16_t joyAdc, uint32_t elapsedMs) {
-  int16_t offset = joyAdc - SIM_JOY_CENTER;
-  if (offset > -SIM_JOY_DEAD_ZONE && offset < SIM_JOY_DEAD_ZONE) offset = 0;
-  float seconds = elapsedMs / 1000.0f;
-  simF += (offset / 512.0f) * SIM_MAX_RATE_F_PER_S * seconds;
-  if (simF < SIM_MIN_F) simF = SIM_MIN_F;
-  if (simF > SIM_MAX_F) simF = SIM_MAX_F;
-  return simF;
 }
 
 struct Periodic {
@@ -455,57 +435,8 @@ inline bool seatFaultLedOn(uint32_t nowMs) {
 // --- end fault indicator ------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Battery ("Power" in docs/firmware.md): pack + (the Mega's VIN pin) -> 10k ->
-// A0 -> 10k -> - rail, so A0 sees half of VIN. VIN sits one diode drop below
-// the pack, so the drop is added back. Empty and full pack voltages come from
-// the doc; the percentage is linear between them, clamped to 0-100, rounded.
-//
-// Decisions not in the doc (pinned by tests in test/logic_test.cpp):
-// - BATTERY_DIODE_DROP_V is a typical drop for the Mega's input diode at the
-//   box's current draw, not a measurement.
-// - A pack below BATTERY_NO_PACK_V is "no reading" (null), not 0 %: on laptop
-//   USB with no pack, VIN is unpowered (or back-fed a few volts through the
-//   regulator) and must not show up as an empty battery. A 6-AA pack that low
-//   could not run the Mega anyway.
-// ---------------------------------------------------------------------------
-
-static const float BATTERY_EMPTY_V = 7.0f;
-static const float BATTERY_FULL_V = 9.0f;
-static const float BATTERY_DIVIDER_RATIO = 2.0f;  // two equal resistors
-static const float BATTERY_DIODE_DROP_V = 0.7f;
-static const float BATTERY_NO_PACK_V = 5.5f;
-static const int8_t BATTERY_NULL = -1;  // sent as `battery: null`
-
-// Average A0 ADC reading -> volts at the battery pack's terminals.
-inline float batteryAdcToPackV(float avgAdc) {
-  return avgAdc * ADC_REF_V / ADC_MAX * BATTERY_DIVIDER_RATIO + BATTERY_DIODE_DROP_V;
-}
-
-// Pack volts -> 0-100, or BATTERY_NULL for no pack (or NaN).
-inline int8_t batteryPercent(float packV) {
-  if (!(packV >= BATTERY_NO_PACK_V)) return BATTERY_NULL;  // NaN too
-  float pct = (packV - BATTERY_EMPTY_V) / (BATTERY_FULL_V - BATTERY_EMPTY_V) * 100.0f;
-  if (pct < 0.0f) pct = 0.0f;
-  if (pct > 100.0f) pct = 100.0f;
-  return (int8_t)(pct + 0.5f);
-}
-
-// Average A0 ADC reading -> 0-100, or BATTERY_NULL.
-inline int8_t batteryFromAdc(float avgAdc) { return batteryPercent(batteryAdcToPackV(avgAdc)); }
-
-// What the status line sends: always BATTERY_NULL without the A0 divider
-// (BATTERY_DIVIDER_WIRED in the sketch), since A0 then floats.
-inline int8_t batteryStatus(bool dividerWired, float avgAdc) {
-  return dividerWired ? batteryFromAdc(avgAdc) : BATTERY_NULL;
-}
-
-// --- end battery -----------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Status line ("Data format and Wi-Fi" in docs/firmware.md). Field names,
-// order, and types follow the doc. `light` is pending approval, so it is left
-// out. `motion` is sent as null until its ticket lands. `battery` is 0-100, or
-// null for any other value (BATTERY_NULL).
+// order, and types follow the doc.
 // `minsToDanger` has one decimal, like tempF; NaN or negative is null. A value
 // too big for the number writer is also sent as null rather than dropping the
 // line (it can't happen with real readings).
@@ -525,7 +456,6 @@ struct StatusFields {
   bool presence;
   float distanceCm;
   float minsToDanger;  // NaN or negative: null
-  int8_t battery;      // 0-100; anything else (BATTERY_NULL): null
 };
 
 struct StrBuf {
@@ -602,15 +532,9 @@ inline uint16_t statusFormat(char *out, uint16_t cap, const StatusFields &f) {
   sbPuts(b, f.presence ? "true" : "false");
   sbPuts(b, ",\"distanceCm\":");
   sbPutRounded(b, f.distanceCm);
-  sbPuts(b, ",\"motion\":null,\"minsToDanger\":");
+  sbPuts(b, ",\"minsToDanger\":");
   if (f.minsToDanger >= 0.0f && statusNumOk(f.minsToDanger)) {
     sbPutFixed1(b, f.minsToDanger);
-  } else {
-    sbPuts(b, "null");
-  }
-  sbPuts(b, ",\"battery\":");
-  if (f.battery >= 0 && f.battery <= 100) {
-    sbPutUint(b, (uint32_t)f.battery);
   } else {
     sbPuts(b, "null");
   }
@@ -626,9 +550,9 @@ inline uint16_t statusFormat(char *out, uint16_t cap, const StatusFields &f) {
 // --- end status line -------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Local alarm: RGB LED, buzzer, and LCD per level (level table, colors, and
-// LCD line 1 format in docs/firmware.md, "Firmware behavior"). These say what
-// the outputs should be at a given time; the sketch drives the pins.
+// Local alarm: RGB LED and buzzer per level (level table and colors in
+// docs/firmware.md, "Firmware behavior"). These say what the outputs should be
+// at a given time; the sketch drives the pins.
 //
 // Decisions not in the doc (pinned by tests in test/logic_test.cpp):
 // - Patterns run from the moment the level was entered (LevelClock), so a new
@@ -641,16 +565,6 @@ inline uint16_t statusFormat(char *out, uint16_t cap, const StatusFields &f) {
 // - Chirp and beep pitches and lengths, and the siren's sweep time (up then
 //   down, a triangle), are picked here. The siren frequency moves in
 //   SIREN_STEP_MS steps so the sketch retunes tone() at most that often.
-// - LCD line 1: level name on the left, temperature right-aligned to the last
-//   column (one decimal, "F"); outside -99.9..999.9 or NaN it shows "--.-F".
-// - LCD line 2 for WARNING and EMERGENCY: unknown minutes to danger (null:
-//   NaN or negative) shows "DANGER IN --.-m"; 999.95 or more shows
-//   "DANGER IN >999m".
-// - With SIMULATE_TEMP on, line 2 alternates: its level text for the first
-//   half of every SIM_LCD_PERIOD_MS, then SIM_LCD_TEXT. Line 1 has no room for
-//   SIM next to "EMERGENCY 104.0F", and it always keeps the level and temp.
-// - Every line is exactly LCD_COLS characters, space-padded, so the sketch can
-//   overwrite in place without clearing.
 // ---------------------------------------------------------------------------
 
 struct RgbColor {
@@ -680,12 +594,6 @@ static const uint16_t SIREN_LOW_HZ = 600;
 static const uint16_t SIREN_HIGH_HZ = 1200;
 static const uint32_t SIREN_PERIOD_MS = 2000UL;  // low -> high -> low
 static const uint32_t SIREN_STEP_MS = 10UL;
-
-static const uint8_t LCD_COLS = 16;
-static const uint8_t LCD_ROWS = 2;
-static const uint8_t LCD_LINE_BUF = LCD_COLS + 1;  // incl. terminator
-static const uint32_t SIM_LCD_PERIOD_MS = 4000UL;
-static const char SIM_LCD_TEXT[] = "SIMULATED TEMP";
 
 // When the current level started, for the level patterns.
 struct LevelClock {
@@ -758,64 +666,6 @@ inline uint16_t buzzerHz(AlertLevel level, uint32_t inLevelMs) {
     }
   }
   return 0;
-}
-
-// Pads `b` with spaces to a full LCD line and terminates it.
-inline void lcdFinish(StrBuf &b) {
-  while (b.len < LCD_COLS) b.buf[b.len++] = ' ';
-  b.buf[b.len] = '\0';
-}
-
-// Temperature as shown on the LCD, e.g. "96.4F"; at most 6 characters.
-inline void lcdPutTemp(StrBuf &b, float tempF) {
-  if (!(tempF > -99.95f && tempF < 999.95f)) {  // false for NaN too
-    sbPuts(b, "--.-F");
-    return;
-  }
-  sbPutFixed1(b, tempF);
-  sbPutc(b, 'F');
-}
-
-// LCD line 1: level name and temperature, e.g. "WARNING    96.4F".
-inline void lcdLine1(char out[LCD_LINE_BUF], AlertLevel level, float tempF) {
-  char temp[8];
-  StrBuf t = {temp, sizeof temp, 0, true};
-  lcdPutTemp(t, tempF);
-  StrBuf b = {out, LCD_LINE_BUF, 0, true};
-  sbPuts(b, alertLevelName(level));
-  while (b.ok && b.len + t.len < LCD_COLS) sbPutc(b, ' ');
-  for (uint16_t i = 0; i < t.len; i++) sbPutc(b, temp[i]);
-  lcdFinish(b);
-}
-
-// LCD line 2: the level text, or SIM_LCD_TEXT in the SIM half of the cycle.
-// `minsToDanger` is NaN or negative when unknown (null in the status line).
-inline void lcdLine2(char out[LCD_LINE_BUF], AlertLevel level, float minsToDanger,
-                     bool simulating, uint32_t nowMs) {
-  StrBuf b = {out, LCD_LINE_BUF, 0, true};
-  if (simulating && nowMs % SIM_LCD_PERIOD_MS >= SIM_LCD_PERIOD_MS / 2) {
-    sbPuts(b, SIM_LCD_TEXT);
-    lcdFinish(b);
-    return;
-  }
-  switch (level) {
-    case LEVEL_IDLE: sbPuts(b, "CAR ON"); break;
-    case LEVEL_ARMED: sbPuts(b, "SEAT EMPTY"); break;
-    case LEVEL_OCCUPANT: sbPuts(b, "SEAT OCCUPIED"); break;
-    case LEVEL_WARNING:
-    case LEVEL_EMERGENCY:
-      sbPuts(b, "DANGER IN ");
-      if (!(minsToDanger >= 0.0f)) {  // NaN or negative: unknown
-        sbPuts(b, "--.-");
-      } else if (minsToDanger >= 999.95f) {
-        sbPuts(b, ">999");
-      } else {
-        sbPutFixed1(b, minsToDanger);
-      }
-      sbPutc(b, 'm');
-      break;
-  }
-  lcdFinish(b);
 }
 
 // --- end local alarm -------------------------------------------------------
