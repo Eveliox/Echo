@@ -278,9 +278,9 @@ def insights_payload(pred_rows, used_runs, mae, in_sample, generated_at):
 
 # COMMAND ----------
 
-dbutils.widgets.text("log_dir", "/Volumes/main/default/echo_logs", "Folder with uploaded .jsonl logs")
-dbutils.widgets.text("timezone", "UTC", "Timezone where the test ran (IANA, e.g. America/Los_Angeles)")
-dbutils.widgets.text("export_path", "/Volumes/main/default/echo_logs/insights.json", "Where to write insights.json (empty: print only)")
+dbutils.widgets.text("log_dir", "/Volumes/workspace/default/echo_logs", "Folder with uploaded .jsonl logs")
+dbutils.widgets.text("timezone", "America/New_York", "Timezone where the test ran (IANA, e.g. America/Los_Angeles)")
+dbutils.widgets.text("export_path", "/Volumes/workspace/default/echo_logs/insights.json", "Where to write insights.json (empty: print only)")
 LOG_DIR = dbutils.widgets.get("log_dir").strip()
 TZ_NAME = dbutils.widgets.get("timezone").strip() or "UTC"
 EXPORT_PATH = dbutils.widgets.get("export_path").strip()
