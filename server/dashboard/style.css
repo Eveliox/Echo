@@ -80,7 +80,7 @@ h2 { margin: 0 0 10px; font: 400 0.75rem "Outfit", system-ui, sans-serif; letter
 
 .label { display: flex; align-items: center; gap: 7px; font-size: 0.7rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
 .big { display: block; font: 900 3rem/1.1 "Doto", system-ui, sans-serif; letter-spacing: -0.04em; color: var(--fg); font-variant-numeric: tabular-nums; }
-.reading-danger { grid-column: 1 / -1; text-align: center; }
+.reading-danger { margin-bottom: 12px; text-align: center; }
 .reading-danger .label { justify-content: center; }
 #minsToDanger { font-size: 6rem; }
 #seat { font: 400 2rem/1.5 "Outfit", system-ui, sans-serif; letter-spacing: 0; }
@@ -97,7 +97,7 @@ h2 { margin: 0 0 10px; font: 400 0.75rem "Outfit", system-ui, sans-serif; letter
 }
 .level .label { justify-content: center; color: var(--accent); }
 .level .big { font-family: "Outfit", system-ui, sans-serif; font-weight: 400; font-size: 3.2rem; letter-spacing: 0.04em; color: var(--accent); }
-.level.stale .big, .theme-muted .readings .big { opacity: 0.65; }
+.level.stale .big, .theme-muted .reading .big, .stale .reading .big { opacity: 0.65; }
 
 .dot { width: 6px; height: 6px; border-radius: 3px; background: var(--accent); }
 .blink .dot { animation: blink 1.2s ease-in-out infinite alternate; }

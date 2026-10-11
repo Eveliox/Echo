@@ -18,10 +18,11 @@ export function levelStyle(state) {
   return Object.hasOwn(LEVELS, state) ? { ...LEVELS[state] } : { color: 'none', blink: false };
 }
 
-// The page's look, matching the app's Car screen (app/App.js): EMERGENCY
-// turns the whole page deep red; every other level is the warm style with its
-// own accent; no level yet is muted. style.css has one .theme-<token> rule per
-// token.
+// The page's look, in the app's colors (app/App.js): EMERGENCY turns the whole
+// page deep red; every other level is the warm style with its own accent; no
+// level yet is muted. Unlike the app's Car screen, a lost EMERGENCY stays red
+// here (the app shows an urgent notice instead). style.css has one
+// .theme-<token> rule per token.
 const THEMES = {
   IDLE: 'calm', ARMED: 'calm', OCCUPANT: 'caution', WARNING: 'caution', EMERGENCY: 'emergency',
 };

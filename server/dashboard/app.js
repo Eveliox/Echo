@@ -21,15 +21,17 @@ export function startDashboard({ document, fetch, setTimeout }) {
 
   function renderStatus(view) {
     $('page').className = `theme-${view.theme}`;
+    $('page').classList.toggle('stale', !view.online); // old readings never look live
     const conn = $('connection');
     conn.textContent = view.connection === 'offline' && view.lastSeen !== '--'
       ? `offline, last seen ${view.lastSeen}` : view.connection;
     conn.className = `connection ${view.connection === 'server unreachable' ? 'unreachable' : view.connection}`;
 
-    // Only rewritten when it changes, so a screen reader announces it once.
+    // Shown before its text is written, and only rewritten when it changes,
+    // so a screen reader announces it once.
     const lost = $('lost-alarm');
-    if (lost.textContent !== view.lostAlarm) lost.textContent = view.lostAlarm;
     lost.hidden = view.lostAlarm === '';
+    if (lost.textContent !== view.lostAlarm) lost.textContent = view.lostAlarm;
 
     const level = $('level');
     level.className = `level level-${view.color}`;

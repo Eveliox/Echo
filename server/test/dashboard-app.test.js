@@ -198,7 +198,9 @@ test('null minsToDanger shows "--"; EMERGENCY is red and blinking; offline shows
   await startDashboard({ document: offlineDoc, fetch: instantFetch(offline).fetch, setTimeout: () => {} });
   assert.equal(text(offlineDoc, 'connection'), `offline, last seen ${clockTime(t2)}`);
   assert.ok(!offlineDoc.byId.get('level').classList.contains('blink'), 'stale data does not blink');
-  assert.equal(offlineDoc.byId.get('page').className, 'theme-emergency', 'a lost EMERGENCY stays red');
+  const page = offlineDoc.byId.get('page');
+  assert.ok(page.classList.contains('theme-emergency'), 'a lost EMERGENCY stays red');
+  assert.ok(page.classList.contains('stale'), 'its old readings are dimmed');
   const lost = offlineDoc.byId.get('lost-alarm');
   assert.equal(lost.hidden, false);
   assert.match(lost.textContent, new RegExp(`since ${clockTime(t2)} · last alert EMERGENCY`));
@@ -214,13 +216,21 @@ test('the lost-alarm banner shows when the server becomes unreachable at WARNING
   bodies['/status'] = new Error('network down');
   await timers[0].fn();
   assert.equal(doc.byId.get('lost-alarm').hidden, false, 'last known WARNING');
-  assert.equal(doc.byId.get('page').className, 'theme-caution');
+  assert.ok(doc.byId.get('page').classList.contains('theme-caution'));
+  assert.ok(doc.byId.get('page').classList.contains('stale'));
+
+  // Back in contact: the banner hides and the readings are live again.
+  bodies['/status'] = sample['/status'];
+  await timers[1].fn();
+  assert.equal(doc.byId.get('lost-alarm').hidden, true);
+  assert.equal(text(doc, 'lost-alarm'), '');
+  assert.ok(!doc.byId.get('page').classList.contains('stale'));
 
   const calm = fakeDocument();
   const occupant = { ...sample, '/status': { online: false, lastSeen: t2, status: status({ state: 'OCCUPANT' }) } };
   await startDashboard({ document: calm, fetch: instantFetch(occupant).fetch, setTimeout: () => {} });
   assert.equal(calm.byId.get('lost-alarm').hidden, true);
-  assert.equal(calm.byId.get('page').className, 'theme-muted');
+  assert.ok(calm.byId.get('page').classList.contains('theme-muted'));
 });
 
 test('the danger line stays hidden with no readings', { timeout: 5000 }, async () => {
