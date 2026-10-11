@@ -278,3 +278,11 @@ Also: the dashboard now shows "Seat distance cm" (the box's distanceCm as sent),
 - The clean run that followed only went IDLE/ARMED/OCCUPANT at 76–79 °F (no heating), so it isn't a heat test either.
 - Next heat run: keep the mug's outside against the LM35 with no drips, keep the A1 wire seated, start a fresh server per run (one log per run), and go past 104 °F. Then rename `real-<date>-<desc>.jsonl`.
 - The server and trackers are stopped. The Desktop logs from today are room-temperature or bench-test data only.
+
+## 2026-10-11 (David, Databricks set up; pipeline proven)
+
+- Databricks Free Edition: catalog `workspace`, Volume `/Volumes/workspace/default/echo_logs`; notebooks/heat_test.py imported into David's Home. Widgets: log_dir `/Volumes/workspace/default/echo_logs`, timezone `America/New_York`, export_path `/Volumes/workspace/default/echo_logs/insights.json`. Compute: Serverless.
+- First Databricks run ever: Run all completed with no errors on one sim log (`sim-2026-10-11-synthetic-replay.jsonl`: the synthetic recording replayed at 2 s into a temp server with the box token). The output passes the app's `validInsights` (`valid: true`); the app would show "On a 80°F night, your car hits danger in 3 minutes. (not from a real heat test)".
+- Not put in the app: one synthetic run gives mae 0.0 in-sample (memorized) and a hair-dryer-speed "3 minutes". Eve's design example stays in app/assets/insights.json until there are real runs.
+- For real runs: delete the sim file from echo_logs, upload `real-*.jsonl`, Run all, validate, then paste into app/assets/insights.json.
+- For Eve: the app's sentence says "On a 80°F" (should be "an" before 8x/11/18 °F); and the notebook's headline uses the run's first moment, where warmRateFPerMin was -0.04 (cooling) while predicting 3 min. Pick a warming moment instead.
