@@ -39,7 +39,7 @@ Echo is a roughly $40 dashboard box that detects an occupied seat in a parked ca
 
 **Backup ladder (plain code, runs no matter what):**
 
-1. Emergency starts → call Contact #1
+1. Emergency starts → call Contact #1 (with ElevenLabs set up, this first call tries the voice agent; on any error or no answer within `ELEVENLABS_TIMEOUT_MS` it is the plain Twilio call)
 2. +2 min with no answer → call Contact #1 again
 3. +3 min → call Contact #2
 4. +5 min → alert everyone on the list
@@ -50,7 +50,7 @@ Echo is a roughly $40 dashboard box that detects an occupied seat in a parked ca
 
 1. **The box never waits on AI or internet.** The siren works with Wi-Fi unplugged.
 2. **The Responder can only escalate, never de-escalate.** It cannot silence the siren or cancel the alert. Only a person at the car pressing the button can; the app's "I'm on my way" never silences it.
-3. **The backup ladder is the floor.** The agent may act sooner than the schedule, never later. If it crashes or stalls, the ladder still runs.
+3. **The backup ladder is the floor.** The agent may act sooner than the schedule, never later. If it crashes or stalls, the ladder still runs. One exception (Eve, Oct 11; teammate OK pending): the ladder's first call to Contact #1 may wait up to `ELEVENLABS_TIMEOUT_MS` for the ElevenLabs voice agent before falling back to the plain Twilio call.
 4. **Sensors are the truth.** Agents read temperature and time-to-danger from the data and never estimate their own.
 5. **The Challenger invents tests, but code grades them.** No AI decides whether the system passed.
 6. **Everything is logged.** Every agent action and its reason appears in the dashboard and app feed.

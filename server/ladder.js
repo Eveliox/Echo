@@ -1,5 +1,7 @@
 // Backup ladder (docs/brief.md, "Backup ladder"): plain code, no AI.
-// Step 1 calls Contact #1 when an EMERGENCY incident starts. Steps 2-4 run on
+// Step 1 calls Contact #1 when an EMERGENCY incident starts; its first attempt
+// can go through `firstCall` (server.js: the ElevenLabs voice call, which
+// falls back to the Twilio <Say> call itself). Steps 2-4 run on
 // timers from the incident's start and keep going if the box goes silent:
 // step 2 calls Contact #1 again (no answer detection yet, so it always
 // re-calls), step 3 calls Contact #2, step 4 calls every listed contact.
@@ -59,7 +61,10 @@ export function emergencyMessage({ tempF, minsToDanger }) {
 }
 
 // `call` comes from createCaller (calls.js): it never throws and resolves to
-// { ok, dialed, sid? }. Returns { onStatus, inIncident, incident }; onStatus
+// { ok, dialed, sid? }. `firstCall` (default `call`) places only step 1's
+// first attempt; it resolves the same way, plus `voice` or `fallback` from
+// createVoiceCaller (voice.js), or `skipped` when the incident ended before
+// its fallback (logged as a skip, never retried). Step-1 retries and steps 2-4 always use `call`. Returns { onStatus, inIncident, incident }; onStatus
 // is meant for tracker.onStatus. Every call outcome and skipped step goes to
 // `actions` (actions.js). `timers` ({ setTimeout, clearTimeout }) is
 // injectable so tests never wait in real time.
@@ -80,7 +85,7 @@ export function emergencyMessage({ tempF, minsToDanger }) {
 // QUIET_SUMMARY_AFTER_MS). Every other outcome, timer retries included, is
 // recorded, so the action log's cap can't push out steps 2-4.
 export function createLadder({
-  contacts, call, timers = realTimers, actions = createActionLog(), log = console.log,
+  contacts, call, firstCall = call, timers = realTimers, actions = createActionLog(), log = console.log,
   logError = console.error, now = Date.now,
 }) {
   // While an incident is open: { step1, calls, lastStatus, timers }.
@@ -120,9 +125,13 @@ export function createLadder({
 
   function recordOutcome(rec, status, result, viaStatus) {
     const facts = `ladder step ${rec.step}: tempF ${status.tempF}, minsToDanger ${status.minsToDanger}`;
+    // Fixed text only: never ElevenLabs' answer.
+    let how = '';
+    if (result?.voice) how = '; as an ElevenLabs voice call';
+    else if (result?.fallback) how = `; ElevenLabs voice call not placed (${result.fallback}), so the Twilio spoken alert instead`;
     if (result?.ok) {
       const reason = result.dialed
-        ? facts
+        ? `${facts}${how}`
         : `${facts}; not live: ECHO_CALLS is not "live", so the call was only logged, not dialed`;
       actions.record({ action: 'call', to: rec.contact.name, reason });
       return;
@@ -137,7 +146,7 @@ export function createLadder({
         + 'one by one but counted in a summary entry'
       : '';
     actions.record({
-      action: 'call_failed', to: rec.contact.name, reason: `${facts}; ${why} (attempt ${rec.attempts}${retry})${quietNext}`,
+      action: 'call_failed', to: rec.contact.name, reason: `${facts}${how}; ${why} (attempt ${rec.attempts}${retry})${quietNext}`,
     });
   }
 
@@ -183,9 +192,19 @@ export function createLadder({
   function attempt(current, rec, { viaStatus = false } = {}) {
     const status = current.lastStatus;
     const quiet = viaStatus && rec.statusFailureLogged;
+    const dial = rec.step === 1 && rec.attempts === 0 ? firstCall : call;
     rec.status = 'dialing';
     rec.attempts += 1;
     const finish = (result) => {
+      if (result?.skipped) {
+        rec.status = 'failed';
+        actions.record({
+          action: 'skip', to: rec.contact.name,
+          reason: `ladder step ${rec.step}: the incident ended while the ElevenLabs voice call was tried `
+            + `(${result.fallback}), so no Twilio call was placed`,
+        });
+        return result;
+      }
       if (result?.ok) {
         rec.status = result.dialed ? 'placed' : 'logged';
         rec.sid = result.sid ?? null;
@@ -204,11 +223,13 @@ export function createLadder({
     };
     let pending;
     try {
-      pending = Promise.resolve(call({
+      pending = Promise.resolve(dial({
         contact: rec.contact,
         message: emergencyMessage(status),
         reason: `emergency, ladder step ${rec.step}`,
         quiet,
+        status,
+        stillNeeded: () => current === incident,
       }));
     } catch {
       pending = Promise.resolve(null);

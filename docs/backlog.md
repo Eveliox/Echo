@@ -172,6 +172,7 @@ Proven by: server, smoke
 ### 19. agent: live voice conversation on the Responder's calls (ElevenLabs)
 Owner: Evelio (sw) · Size: L · Depends on: 18 · Issue: #19
 Decided (Eve, 2026-10-10): ElevenLabs Agents Platform with the Twilio number imported, HTTP webhook tools back into Echo; no WebSocket server or new dependency. The ladder keeps plain Twilio `<Say>` calls.
+Changed (Eve, 2026-10-11): ladder step 1's first attempt (Contact #1) also tries the ElevenLabs voice call first, falling back to the Twilio `<Say>` call on error or after `ELEVENLABS_TIMEOUT_MS`; step-1 retries and steps 2-4 stay plain Twilio.
 - [ ] Responder `place_call` starts an ElevenLabs outbound call (REST, `xi-api-key`; keys in `.env`, placeholders in `env.example`, blanked in smoke; `ECHO_CALLS=live` gate); opens with the code-built `emergencyMessage`, `tempF`/`minsToDanger` passed as sent
 - [ ] Fallback to the Twilio `<Say>` call when ElevenLabs is unconfigured, errors or times out; the ladder's call times are unchanged
 - [ ] Server tools on a separate port (ngrok only that port): `get_car_status`, `request_call(contact)`, `log_action(note)`; shared-secret header, size cap, rate limit, #18 validation and caps; logged as `agent: voice: …`

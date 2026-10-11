@@ -17,8 +17,9 @@
 // Each accepted status is also logged to a file in server/logs/, or ECHO_LOG_DIR.
 // With ECHO_BOX_TOKEN set in server/.env, POST /status needs it in the
 // X-Echo-Token header or gets 401 before its body is read (auth.js).
-// With ElevenLabs set in server/.env, the Responder's calls (never the
-// ladder's) start voice conversations, and with ECHO_VOICE_SECRET too, a
+// With ElevenLabs set in server/.env, the Responder's calls and the ladder's
+// first step-1 attempt start voice conversations (each falls back to the
+// Twilio spoken alert), and with ECHO_VOICE_SECRET too, a
 // second server on ECHO_VOICE_PORT (127.0.0.1 only) takes the voice agent's
 // tool webhooks (voice.js). The routes above are never served there.
 
@@ -31,7 +32,7 @@ import {
 import { createLadder } from './ladder.js';
 import { createResponder } from './responder.js';
 import { geminiModel, readGeminiConfig, responderStartupMessage } from './gemini.js';
-import { readElevenLabsConfig } from './elevenlabs.js';
+import { missingElevenLabsSettings, readElevenLabsConfig } from './elevenlabs.js';
 import {
   createVoiceCaller, createVoiceServer, readVoiceSecret, VOICE_HOST, voicePort, voiceStartup,
 } from './voice.js';
@@ -238,12 +239,21 @@ export function listenPort(env = process.env) {
 
 // Feeds every new status from `tracker` into the backup ladder, which records
 // its actions in `actions`. `timers` and `now` are for tests (see createLadder).
+// With `elevenLabs` fully configured, step 1's first attempt goes through
+// createVoiceCaller (voice call, else the Twilio spoken alert); everything
+// else stays the plain Twilio call. `startVoice` replaces the ElevenLabs request (tests).
 export function attachLadder(tracker, {
-  config, dial, log, logError, actions, timers, now,
+  config, dial, log, logError, actions, timers, now, elevenLabs, startVoice,
 } = {}) {
   const call = createCaller({ config, dial, log, logError });
+  const firstCall = missingElevenLabsSettings(elevenLabs).length === 0
+    ? createVoiceCaller({
+      live: config.live, elevenLabs, start: startVoice, say: call,
+      names: config.contacts.map((c) => c.name), timers, log, logError,
+    })
+    : call;
   const ladder = createLadder({
-    contacts: config.contacts, call, actions, timers, log, logError, now,
+    contacts: config.contacts, call, firstCall, actions, timers, log, logError, now,
   });
   tracker.onStatus(ladder.onStatus);
   return ladder;
@@ -282,9 +292,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (saved) config.contacts = saved;
   const tracker = createTracker();
   const actions = createActionLog();
-  const ladder = attachLadder(tracker, { config, actions });
-  const gemini = readGeminiConfig();
   const elevenLabs = readElevenLabsConfig();
+  const ladder = attachLadder(tracker, { config, actions, elevenLabs });
+  const gemini = readGeminiConfig();
   let voiceLink = null; // { requestCall, inIncident }, set when the Responder is on
   const responder = attachResponder(tracker, {
     config, actions, model: gemini.apiKey ? geminiModel(gemini) : null, elevenLabs,

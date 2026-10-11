@@ -115,6 +115,29 @@ test('a call that rejects or throws counts as failed and is retried, never throw
   assert.deepEqual(ladder.incident(), { step1: { status: 'placed', attempts: 3, sid: 'CA3' } });
 });
 
+test('firstCall places only step 1\'s first attempt, with the box status; its retries use call', async () => {
+  const first = manualCall();
+  const plain = manualCall();
+  const ladder = createLadder({ contacts, call: plain.call, firstCall: first.call });
+  const sent = status('EMERGENCY', { tempF: 101.3, minsToDanger: 2.1 });
+  ladder.onStatus(sent);
+  assert.equal(first.attempts.length, 1);
+  assert.equal(plain.attempts.length, 0);
+  assert.equal(first.attempts[0].c.status, sent, 'the status exactly as the box sent it');
+  assert.equal(first.attempts[0].c.reason, 'emergency, ladder step 1');
+  first.attempts[0].resolve({ ok: false, dialed: false });
+  await settle();
+  ladder.onStatus(status('EMERGENCY'));
+  assert.equal(first.attempts.length, 1, 'never retried through firstCall');
+  assert.equal(plain.attempts.length, 1);
+  plain.attempts[0].resolve({ ok: true, dialed: true, sid: 'CA2' });
+  await settle();
+  ladder.onStatus(status('ARMED'));
+  ladder.onStatus(status('EMERGENCY'));
+  assert.equal(first.attempts.length, 2, 'a new incident\'s first attempt uses firstCall again');
+  assert.equal(plain.attempts.length, 1);
+});
+
 test('not live: the "would call" log counts as done, once per incident', async () => {
   const { attempts, call } = manualCall();
   const ladder = createLadder({ contacts, call });

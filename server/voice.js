@@ -1,6 +1,7 @@
 // Live voice on the Responder's calls (ticket #19; agent setup in server/voice/agent.md).
 //
-// createVoiceCaller is the Responder's caller, never the ladder's. With
+// createVoiceCaller is the Responder's caller, and the ladder's for step 1's
+// first attempt only (server.js attachLadder). With
 // ECHO_CALLS=live and ElevenLabs configured, a call starts an ElevenLabs voice
 // conversation (elevenlabs.js) that opens with the code-built emergencyMessage
 // and gets the box's values as sent. If ElevenLabs isn't configured, fails, or
@@ -75,11 +76,15 @@ export function voiceVariables(status, contact, names) {
   };
 }
 
-// Returns call({ contact, message, reason, status }) for createResponder.
+// Returns call({ contact, message, reason, status }) for createResponder and
+// the ladder's `firstCall`.
 // `say` is createCaller's call (calls.js): the Twilio <Say> call and the
 // ECHO_CALLS gate. `start` defaults to elevenLabsDialer(elevenLabs). Never
 // throws; resolves like `say`, plus `voice: true` for a voice call or
 // `fallback` (a FALLBACK_REASONS text) when `say` was used instead live.
+// An optional `stillNeeded()` in the args is asked after a failed voice call:
+// false (the incident ended meanwhile) resolves { ok: false, dialed: false,
+// skipped: true, fallback } without calling `say`.
 export function createVoiceCaller({
   live, elevenLabs, start, say, names, timers = realTimers, log = console.log, logError = console.error,
 }) {
@@ -129,6 +134,10 @@ export function createVoiceCaller({
         logError(`calls: ElevenLabs voice call to ${who} for ${reason} not placed (${err?.message ?? err}); `
           + 'placing the Twilio spoken call instead');
       }
+      if (args.stillNeeded?.() === false) {
+        log(`calls: no Twilio spoken call to ${who} for ${reason}: the incident ended while ElevenLabs was tried`);
+        return { ok: false, dialed: false, skipped: true, fallback };
+      }
     }
     return { ...(await say(args)), fallback };
   };
@@ -139,16 +148,22 @@ export function createVoiceCaller({
 export function voiceStartup({ elevenLabs, secret, responderOn, port }) {
   const missing = missingElevenLabsSettings(elevenLabs);
   if (!responderOn) {
-    return { serve: false, lines: [{ level: 'info', text: 'voice: off (the Responder is off; only its calls use ElevenLabs)' }] };
+    const text = missing.length
+      ? `voice: off (the Responder is off; server/.env has no ${missing.join(', ')}): every call uses the Twilio spoken alert`
+      : 'voice: off (the Responder is off) except the ladder\'s first call to Contact #1, an ElevenLabs voice call '
+        + '(the Twilio spoken alert if it fails); the voice tools are off';
+    return { serve: false, lines: [{ level: 'info', text }] };
   }
   if (missing.length) {
     return {
       serve: false,
-      lines: [{ level: 'info', text: `voice: off (server/.env has no ${missing.join(', ')}): the Responder's calls use the Twilio spoken alert` }],
+      lines: [{ level: 'info', text: `voice: off (server/.env has no ${missing.join(', ')}): every call uses the Twilio spoken alert` }],
     };
   }
   const lines = [{
-    level: 'info', text: 'voice: on: the Responder\'s calls start ElevenLabs voice calls (the Twilio spoken alert if one fails)',
+    level: 'info',
+    text: 'voice: on: the Responder\'s calls and the ladder\'s first call to Contact #1 start ElevenLabs voice calls '
+      + '(the Twilio spoken alert if one fails)',
   }];
   if (!secret) {
     lines.push({

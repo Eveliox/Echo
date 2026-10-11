@@ -172,3 +172,20 @@ test('the action log says a Responder call went out as a voice call, or why it f
     assert.ok(!entries[0].reason.includes('+1555'), name);
   }
 });
+
+test('stillNeeded false after a failed voice call: no Twilio call, skipped; true or absent: the fallback dials', async () => {
+  const fail = () => { throw new Error('ElevenLabs answered 500'); };
+  const gone = setup({ start: fail });
+  const result = await gone.call({ ...request(gone), stillNeeded: () => false });
+  assert.deepEqual(result, { ok: false, dialed: false, skipped: true, fallback: FALLBACK_REASONS.failed });
+  assert.equal(gone.dialed.length, 0);
+
+  const needed = setup({ start: fail });
+  assert.equal((await needed.call({ ...request(needed), stillNeeded: () => true })).ok, true);
+  assert.equal(needed.dialed.length, 1);
+
+  const voiced = setup();
+  let asked = 0;
+  await voiced.call({ ...request(voiced), stillNeeded: () => { asked += 1; return false; } });
+  assert.equal(asked, 0, 'a voice call that went through never asks');
+});

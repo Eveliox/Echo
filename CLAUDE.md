@@ -17,7 +17,7 @@ Read thresholds, pins, and formats from these docs. Don't copy them into code co
 - New behavior gets a test or a Checks row. Never weaken or delete a test to make it pass.
 - The Mega decides and alarms; the ESP8266 only forwards lines. The box never waits on the network.
 - Sensors are the truth. Server and agent code read `tempF` and `minsToDanger` from the box and never compute their own.
-- Plain code guarantees the floor. The backup call ladder runs without the AI; the AI may act earlier, never later.
+- Plain code guarantees the floor. The backup call ladder never depends on the AI: only its first call to Contact #1 may try the ElevenLabs voice agent, and that falls back to the plain Twilio call on any error or timeout; every other ladder call is plain Twilio. The AI may act earlier, never later.
 - Real phone calls only happen when `ECHO_CALLS=live` is set. Any other value means no calls are dialed.
 - Secrets never go in git: Wi-Fi credentials, Twilio and Gemini keys load from a local file kept out of git.
 - No new dependencies without saying why.

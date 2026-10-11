@@ -1,8 +1,10 @@
 # Echo voice agent (ElevenLabs), ticket #19
 
-The ElevenLabs agent that talks on the Responder's calls. Only the Responder's
-calls (`place_call`) use it; the backup ladder keeps its plain Twilio spoken
-calls. The server code is `server/elevenlabs.js` (the outbound-call request) and
+The ElevenLabs agent that talks on the Responder's calls (`place_call`) and on
+the backup ladder's first call to Contact #1 (step 1's first attempt). Every
+other ladder call, step-1 retries included, stays the plain Twilio spoken call,
+and a voice call that fails or is late falls back to it. The voice tools work
+only while the Responder is on (it needs `GEMINI_API_KEY`). The server code is `server/elevenlabs.js` (the outbound-call request) and
 `server/voice.js` (fallback caller and tool webhooks).
 
 Copy the prompt, first message and tools below into the agent exactly. If you

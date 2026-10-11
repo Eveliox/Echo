@@ -336,6 +336,9 @@ test('voiceStartup: tools serve only with the Responder, all ElevenLabs keys, th
   const off = voiceStartup({ ...on, responderOn: false });
   assert.equal(off.serve, false);
   assert.match(text(off), /^voice: off \(the Responder is off/);
+  assert.match(text(off), /except the ladder's first call to Contact #1, an ElevenLabs voice call/);
+  const offMissing = voiceStartup({ ...on, responderOn: false, elevenLabs: { ...el, apiKey: '' } });
+  assert.match(text(offMissing), /^voice: off \(the Responder is off; server\/\.env has no ELEVENLABS_API_KEY\): every call uses the Twilio/);
 
   const missing = voiceStartup({ ...on, elevenLabs: { ...el, agentId: '' } });
   assert.equal(missing.serve, false);
