@@ -1,17 +1,52 @@
 {
   "version": 1,
-  "source": "design example",
-  "generatedAt": null,
-  "real": false,
-  "runs": 0,
-  "realRuns": 0,
-  "mae": null,
-  "evaluation": null,
-  "headline": { "tempF": 92, "timeOfDay": "afternoon", "minutes": 14 },
+  "source": "databricks notebook",
+  "generatedAt": "2026-10-11T05:19:38Z",
+  "real": true,
+  "runs": 1,
+  "realRuns": 1,
+  "mae": 0,
+  "evaluation": "in-sample",
+  "headline": {
+    "tempF": 77,
+    "timeOfDay": "night",
+    "minutes": 0
+  },
   "points": [
-    { "minute": 0, "tempF": 92 },
-    { "minute": 7, "tempF": 98 },
-    { "minute": 14, "tempF": 104 }
+    {
+      "minute": 0,
+      "tempF": 76.9
+    },
+    {
+      "minute": 0.1,
+      "tempF": 76.9
+    },
+    {
+      "minute": 0.1,
+      "tempF": 76.9
+    },
+    {
+      "minute": 0.2,
+      "tempF": 76.9
+    },
+    {
+      "minute": 0.2,
+      "tempF": 76.9
+    },
+    {
+      "minute": 0.3,
+      "tempF": 79.6
+    },
+    {
+      "minute": 0.3,
+      "tempF": 86.5
+    },
+    {
+      "minute": 0.4,
+      "tempF": 105.9
+    }
   ],
-  "inputs": { "warmRateFPerMin": 0.86 }
+  "inputs": {
+    "warmRateFPerMin": 0.23
+  }
 }

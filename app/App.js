@@ -198,7 +198,7 @@ function EchoApp() {
             <Text style={[styles.small, styles.onRed]}>This tells Echo you are responding. The alarm continues.</Text>
           </>}
           {!!ackNote && <Text accessibilityRole="alert" style={[styles.body, emergencyScreen && styles.onRed]}>{ackNote}</Text>}
-          <ActionButton emergency={vm.emergency} icon="phone" secondary={vm.emergency} onPress={() => dial(() => emergencyPhone(config))}>{config.demoCalls ? 'Open demo dialer' : 'Call 911'}</ActionButton>
+          <ActionButton emergency={vm.emergency} icon="phone" secondary={vm.emergency} onPress={() => dial(() => emergencyPhone(config))}>{config.demoCalls ? 'Call 911 (demo)' : 'Call 911'}</ActionButton>
         </View>}
         {vm.emergency && <View style={styles.emergencyReadings}><CabinReadings vm={vm} showEstimate={false} /></View>}
         {!vm.emergency && <CabinHome vm={vm} visible={carVisible && !launchVisible} onSceneLayout={bounds => { carBounds.current = bounds; setCarVisible(sceneVisible(bounds, viewport.current.offset, viewport.current.height)); }} />}
