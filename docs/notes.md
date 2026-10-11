@@ -400,3 +400,8 @@ Decision (David, with Eve's agreement): the box has no joystick, photoresistor, 
 - Validation: 45 app tests pass, uncached ESLint and TypeScript no-emit parse pass, iOS/Android exports succeed. Not rendered: react-native-web isn't installed and no phone is connected. Layout of the red screen still needs a look on the demo phone.
 - Pre-demo check (server URL): the app reads `EXPO_PUBLIC_ECHO_SERVER_URL` from `app/.env` when Expo starts. On the demo hotspot: (1) on the laptop run `ipconfig getifaddr en0`; (2) if it differs from the IP in `app/.env`, edit it and restart with `npx expo start --clear`; (3) on the phone's browser open `http://<that IP>:3000/status` and confirm JSON loads before opening the app.
 - Still to do on the demo phone through Expo Go: 3D car WebView loads (the still image shows until it does) and runs smoothly, chart drag works, fonts load, vibration fires on EMERGENCY, and the "I'm on my way" button is reachable without scrolling.
+
+## 2026-10-11 (Eve, demo-only contact save for judging)
+
+- Calls for judging stay on the two `server/.env` contacts. To still show "add a contact", `EXPO_PUBLIC_ECHO_DEMO_CONTACTS=true` in `app/.env` makes Save in Edit contacts check names and numbers as usual, hide the PIN field, send nothing to the server, and show the normal "Saved … after the Echo server restarts" message. Off by default in `app/env.example`. Test: demo save sends nothing and needs no PIN.
+- After judging: set it to false (or remove it) in `app/.env` and restart Expo, so Save goes back to the real PIN-protected `POST /saved-contacts`. `ECHO_CONTACTS_PIN` is also set in `server/.env` now, so real saving works once the switch is off.

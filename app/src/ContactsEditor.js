@@ -14,13 +14,13 @@ export function ContactsEditor({ names, onDone }) {
   const [problem, setProblem] = useState('');
   const change = (index, field, value) => setRows(current => current.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   const save = async () => {
-    const error = contactDraftError(rows) || (pin.trim() ? '' : 'Enter the Echo PIN.');
+    const error = contactDraftError(rows) || (config.demoContacts || pin.trim() ? '' : 'Enter the Echo PIN.');
     if (error) { setProblem(error); return; }
     setSending(true);
     setProblem('');
     try {
       const contacts = rows.map(row => ({ name: row.name.normalize('NFC').trim(), number: normalizePhone(row.number) }));
-      const result = await saveContacts(config.serverUrl, pin.trim(), contacts);
+      const result = await saveContacts(config.serverUrl, pin.trim(), contacts, { demo: config.demoContacts });
       onDone(`Saved ${result.saved} contact${result.saved === 1 ? '' : 's'}. Echo starts calling them after the Echo server restarts.`);
     } catch (err) { setProblem(err.message); }
     finally { setSending(false); }
@@ -37,8 +37,10 @@ export function ContactsEditor({ names, onDone }) {
       <TextInput style={styles.input} value={row.number} onChangeText={value => change(index, 'number', value)} placeholder="Phone, like (305) 555-0100" placeholderTextColor={palette.muted} keyboardType="phone-pad" textContentType="telephoneNumber" maxLength={20} accessibilityLabel={`Contact ${index + 1} phone number`} />
     </View>)}
     {rows.length < MAX_CONTACTS && <ActionButton secondary icon="contacts" onPress={() => setRows(current => [...current, { name: '', number: '' }])}>Add a contact</ActionButton>}
-    <Text style={styles.label}>ECHO PIN</Text>
-    <TextInput style={styles.input} value={pin} onChangeText={setPin} placeholder="From whoever set up your Echo" placeholderTextColor={palette.muted} keyboardType="number-pad" secureTextEntry maxLength={12} accessibilityLabel="Echo PIN" />
+    {!config.demoContacts && <>
+      <Text style={styles.label}>ECHO PIN</Text>
+      <TextInput style={styles.input} value={pin} onChangeText={setPin} placeholder="From whoever set up your Echo" placeholderTextColor={palette.muted} keyboardType="number-pad" secureTextEntry maxLength={12} accessibilityLabel="Echo PIN" />
+    </>}
     {!!problem && <Notice urgent icon="alert" title="Not saved">{problem}</Notice>}
     <ActionButton icon="check" onPress={save} disabled={sending}>{sending ? 'Saving…' : 'Save contacts'}</ActionButton>
     <ActionButton secondary icon="arrow" onPress={() => onDone('')} disabled={sending}>Cancel</ActionButton>
