@@ -250,3 +250,25 @@ test('the child server never reads contacts saved from the app', () => {
   const dir = '/tmp/echo-smoke-x';
   assert.equal(childEnv({ ECHO_CONTACTS_FILE: '/real/server/contacts.json' }, 4123, dir).ECHO_CONTACTS_FILE, join(dir, 'no-saved-contacts.json'));
 });
+
+test('a server/.env with Databricks keys does not survive the blank, so insights are off in smoke (no network)', async () => {
+  const { BLANKED_INSIGHTS_KEYS } = await import('../smoke.js');
+  assert.deepEqual(BLANKED_INSIGHTS_KEYS, ['DATABRICKS_HOST', 'DATABRICKS_TOKEN']);
+  const env = childEnv({ DATABRICKS_HOST: 'https://dbc-fake.cloud.databricks.com', DATABRICKS_TOKEN: 'fake-dbx-token' }, 4123);
+  for (const key of BLANKED_INSIGHTS_KEYS) assert.equal(env[key], '', key);
+  const dir = mkdtempSync(join(tmpdir(), 'echo-smoke-env-'));
+  const file = join(dir, '.env');
+  writeFileSync(file, 'DATABRICKS_HOST=https://dbc-fake.cloud.databricks.com\nDATABRICKS_TOKEN=fake-dbx-token\n');
+  try {
+    const calls = fileURLToPath(new URL('../../server/calls.js', import.meta.url));
+    const insights = fileURLToPath(new URL('../../server/insights.js', import.meta.url));
+    const script = `const { loadEnv } = await import(${JSON.stringify(calls)});`
+      + `const { readInsightsConfig, insightsStartupMessage } = await import(${JSON.stringify(insights)});`
+      + `loadEnv(${JSON.stringify(file)}); console.log(insightsStartupMessage(readInsightsConfig()));`;
+    const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env, encoding: 'utf8', timeout: 10_000 });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout.trim(), 'insights: off (no DATABRICKS_HOST/TOKEN)');
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});

@@ -107,6 +107,10 @@ export const BLANKED_VOICE_KEYS = [
   'ELEVENLABS_API_KEY', 'ELEVENLABS_AGENT_ID', 'ELEVENLABS_PHONE_NUMBER_ID', 'ECHO_VOICE_SECRET',
 ];
 
+// The Databricks keys, blanked the same way: with them unset the child server's
+// insights download is off (server/insights.js), so smoke never reaches Databricks.
+export const BLANKED_INSIGHTS_KEYS = ['DATABRICKS_HOST', 'DATABRICKS_TOKEN'];
+
 // The server's startup lines about voice (server/voice.js): off, and the tool server never listening.
 export const VOICE_OFF_LINE = /^voice: off\b/;
 export const VOICE_TOOLS_LINE = /^voice: tool webhooks\b/;
@@ -142,7 +146,7 @@ export function childEnv(parentEnv, port, logDir = DEFAULT_SMOKE_LOG_DIR, boxTok
     ...parentEnv, ECHO_CALLS: 'off', ECHO_PORT: String(port), ECHO_LOG_DIR: logDir, ECHO_BOX_TOKEN: boxToken,
     ECHO_CONTACTS_FILE: join(logDir, 'no-saved-contacts.json'),
   };
-  for (const key of [...BLANKED_CALL_KEYS, ...BLANKED_AGENT_KEYS, ...BLANKED_VOICE_KEYS]) env[key] = '';
+  for (const key of [...BLANKED_CALL_KEYS, ...BLANKED_AGENT_KEYS, ...BLANKED_VOICE_KEYS, ...BLANKED_INSIGHTS_KEYS]) env[key] = '';
   return env;
 }
 

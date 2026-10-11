@@ -11,7 +11,8 @@
 # MAGIC `minsToDanger` from its own sensors. Besides cell results and a session-scoped temp view, the last cell
 # MAGIC writes `insights.json` to the `export_path` widget and prints it. Copy that JSON by hand into the repo's
 # MAGIC `app/assets/insights.json`: the app bundles that file and shows it on the Heat insights screen (the app
-# MAGIC never calls Databricks). The server reads nothing from here, and the predictions never feed alerts or calls.
+# MAGIC never calls Databricks). The server reads only the file named by ECHO_INSIGHTS_PATH (default: the Florida
+# MAGIC forecast, not this notebook's export), and the predictions never feed alerts or calls.
 # MAGIC
 # MAGIC **Uploading logs by hand.** The server writes one log per start to `server/logs/status-<start time>-<pid>.jsonl`
 # MAGIC (git-ignored): a `# <ISO receive time>` line, then the status JSON as received, repeated.

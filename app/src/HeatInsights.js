@@ -1,14 +1,46 @@
-import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Line, Path } from 'react-native-svg';
 import { Brand, Icon } from './ui';
 import { insightsView } from './insights';
+import { insightsFreshness, liveInsights, nextInsights } from './client';
+import { config } from '../config';
 import insightsFile from '../assets/insights.json';
 
 const ink = '#352315';
 const muted = '#715037';
-// Bundled notebook export (or its design-example starter); predictions only, never live values.
-const view = insightsView(insightsFile);
+// The server's latest Databricks file when it has one, else the bundled
+// notebook export (or its design-example starter); predictions only, never live values.
+const REFRESH_MS = 60_000;
+// The last copy shown, kept while the tab is closed so reopening it never flashes the bundled file.
+let lastShown = { data: insightsFile, fetchedAt: null };
+const clock = ms => {
+  const date = new Date(ms);
+  const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return date.toDateString() === new Date().toDateString() ? time : `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+};
+
+// Asks the server gently while the tab is open and the app is active.
+function useInsights() {
+  const [live, setLive] = useState(lastShown);
+  useEffect(() => {
+    let stopped = false;
+    let busy = false;
+    const update = async () => {
+      if (stopped || busy || AppState.currentState !== 'active') return;
+      busy = true;
+      try {
+        const next = await liveInsights(config.serverUrl, insightsFile);
+        if (!stopped) setLive(previous => (lastShown = nextInsights(previous, next)));
+      } finally { busy = false; }
+    };
+    const subscription = AppState.addEventListener('change', state => { if (state === 'active') update(); });
+    update();
+    const timer = setInterval(update, REFRESH_MS);
+    return () => { stopped = true; clearInterval(timer); subscription.remove(); };
+  }, []);
+  return live;
+}
 
 function HeatArc({ moments, ticks, selected, timeline }) {
   const point = moments[selected];
@@ -40,6 +72,9 @@ function WarmingBars() {
 
 export function HeatInsights() {
   const [selected, setSelected] = useState(1);
+  const live = useInsights();
+  const view = useMemo(() => insightsView(live.data), [live.data]);
+  const updated = insightsFreshness(live, clock);
   if (!view.ok) return <>
     <View style={s.header}><Brand /></View>
     <View><Text style={s.title}>Heat insights</Text></View>
@@ -72,7 +107,7 @@ export function HeatInsights() {
     </View>
     <View style={s.context}><View style={s.contextItem}><Icon name="clock" size={17} color={ink} /><Text style={s.contextText}>{view.timeOfDay}</Text></View><Text style={s.caption}>{view.startCaption}</Text></View>
     <View style={s.future}><Text style={s.futureTitle}>How heat becomes insight.</Text><Text style={s.body}>{view.how}</Text><Text style={s.body}>{view.basis}</Text></View>
-    <Text style={s.footnote}>{view.footnote}</Text>
+    <Text style={s.footnote}>{view.footnote}{updated && `\n${updated}`}</Text>
   </>;
 }
 

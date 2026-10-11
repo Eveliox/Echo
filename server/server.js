@@ -8,6 +8,8 @@
 //   POST /saved-contacts { pin, contacts: [{ name, number }] } from the app: needs
 //        ECHO_CONTACTS_PIN, refused during an incident, saved to a git-ignored
 //        file that only takes effect when the server restarts (contacts.js)
+//   GET  /insights { ok, insights, fetchedAt } or { ok: false, reason }: the last good
+//        Databricks Heat insights file (insights.js); read-only, never touches alerts
 //   GET  /        the read-only dashboard page (dashboard.js, files in server/dashboard/)
 // Each new status also feeds the backup ladder (ladder.js). Calls only dial
 // with ECHO_CALLS=live; Twilio and contacts load from server/.env.
@@ -45,6 +47,7 @@ import {
 import {
   contactsFile, contactsPinStartupMessage, loadSavedContacts, readContactsPin, saveContacts, validateContacts,
 } from './contacts.js';
+import { createInsights, insightsStartupMessage, readInsightsConfig } from './insights.js';
 
 export const PORT = 3000;
 const MAX_BODY_BYTES = 4096;
@@ -80,10 +83,12 @@ function requestPath(url) {
 // the posts it turns away (createRejectionLog).
 // `contactsPin` ('' = off) gates POST /saved-contacts; `saveContactList`
 // writes a validated list; `contactsLocked` is true during an incident.
+// `insights` (createInsights) answers GET /insights; without one it is "not configured".
 export function createServer({
   tracker = createTracker(), history = createHistory(), statusLog = null, actions = createActionLog(),
   logError = console.error, boxToken = '', rejections = createRejectionLog({ log: logError }),
   now = Date.now, contacts = [], contactsPin = '', saveContactList = null, contactsLocked = () => false,
+  insights = null,
 } = {}) {
   const publicContacts = contacts.map((contact, index) => ({ order: index + 1, name: contact.name }));
   // Global cooldown needs constant memory and cannot be bypassed with invented client IDs.
@@ -110,6 +115,10 @@ export function createServer({
     if (path === '/actions') {
       if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
       return send(res, 200, { entries: actions.entries() });
+    }
+    if (path === '/insights') {
+      if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
+      return send(res, 200, insights ? insights.snapshot() : { ok: false, reason: 'not configured' });
     }
     if (path === '/contacts') {
       if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
@@ -307,10 +316,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
   const statusLog = createStatusLog({ dir: logDir() });
   const boxToken = readBoxToken();
+  const insightsConfig = readInsightsConfig();
+  const insights = createInsights({ config: insightsConfig });
   createServer({
     tracker, statusLog, actions, boxToken, contacts: config.contacts,
     contactsPin: readContactsPin(), saveContactList: (list) => saveContacts(list, savedFile),
-    contactsLocked: () => ladder.inIncident(),
+    contactsLocked: () => ladder.inIncident(), insights,
   }).listen(port, () => {
     console.log(`Echo server listening on port ${port}`);
     console.log(`Echo server logging statuses to ${statusLog.file}`);
@@ -327,6 +338,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const pinMessage = contactsPinStartupMessage();
     (pinMessage.level === 'warn' ? console.error : console.log)(pinMessage.text);
     console.log(responderStartupMessage(gemini));
+    console.log(insightsStartupMessage(insightsConfig));
+    insights.start().catch(() => {}); // never throws; a failure only leaves insights off
     for (const { level, text } of voice.lines) (level === 'info' ? console.log : console.error)(text);
     if (!voice.serve) return;
     const voicePortNumber = voicePortSetting.port;

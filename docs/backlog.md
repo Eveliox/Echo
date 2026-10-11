@@ -206,7 +206,7 @@ Proven by: logic-test, manual run
 
 ### 23. app: Heat insights screen from the Databricks predictions
 Owner: David (hw) · Size: S · Depends on: 20, 15 · Issue: #23
-- [ ] The #14 notebook exports its predictions to `app/assets/insights.json` (shape documented in the notebook; its header comment updated, since it currently says it writes nothing the app reads); no live Databricks call from the app
+- [ ] The #14 notebook exports its predictions to `app/assets/insights.json` (shape documented in the notebook; its header comment updated, since it currently says it writes nothing the app reads); the app never calls Databricks: the laptop server downloads the Volume file every 5 min via the Files API (token stays in `server/.env`) and serves it read-only at `GET /insights`; the app polls that and falls back to the bundled `app/assets/insights.json`
 - [ ] The Heat insights screen shows them in plain words; values come from the JSON (the brief's "92°F / 14 minutes" line is only an example); predictions not from a real heat test show "(not from a real heat test)"; predictions never feed alerts or calls
 - [ ] Uses a real heat-test log (`real-*.jsonl`) from the hardware run
 Proven by: app, manual check

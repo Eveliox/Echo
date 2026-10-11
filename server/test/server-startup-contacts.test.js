@@ -51,6 +51,7 @@ async function start(fileText, until) {
       ECHO_CONTACTS_FILE: file, ECHO_CONTACTS_PIN: '',
       CONTACT1_NAME: 'EnvMom', CONTACT1_NUMBER: '+15550000001', CONTACT2_NAME: '', CONTACT2_NUMBER: '',
       GEMINI_API_KEY: '', ELEVENLABS_API_KEY: '', ECHO_VOICE_SECRET: '',
+      DATABRICKS_HOST: '', DATABRICKS_TOKEN: '', // no network: insights off
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

@@ -1,4 +1,5 @@
 import { serverUrl } from './model.js';
+import { validInsights } from './insights.js';
 export async function request(base, path, { fetcher = fetch, method = 'GET', timeoutMs = 4000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -27,6 +28,36 @@ export async function readResource(base, path, options) {
     return result.map(({ order, name }) => ({ order, name }));
   }
   throw new Error('Unknown app resource.');
+}
+
+// Heat insights from the server's last Databricks download (GET /insights; the
+// app never calls Databricks). Never throws: anything but a valid file falls
+// back to `bundled` (app/assets/insights.json), with fetchedAt null.
+export async function liveInsights(base, bundled, options) {
+  try {
+    const result = await request(base, '/insights', options);
+    if (result?.ok === true && validInsights(result.insights) && Number.isFinite(result.fetchedAt)) {
+      return { data: result.insights, fetchedAt: result.fetchedAt };
+    }
+  } catch { /* offline or no server: the bundled file */ }
+  return { data: bundled, fetchedAt: null };
+}
+
+// What the screen shows next: a failed poll (fetchedAt null) never replaces a
+// live copy already shown; it only keeps the bundled file until one arrives.
+export function nextInsights(previous, result) {
+  return result.fetchedAt === null && previous?.fetchedAt != null ? previous : result;
+}
+
+// The freshness line for a live copy, null for the bundled file. The main time
+// is the file's own generatedAt (when Databricks made it); fetchedAt is only when
+// the server last checked. `format` turns a ms time into text.
+export function insightsFreshness({ data, fetchedAt }, format) {
+  if (fetchedAt === null || fetchedAt === undefined) return null;
+  const made = typeof data?.generatedAt === 'string' ? Date.parse(data.generatedAt) : NaN;
+  const kind = data?.source === 'databricks forecast' ? 'Forecast' : 'Prediction';
+  return Number.isFinite(made) ? `${kind} from Databricks · made ${format(made)} · checked ${format(fetchedAt)}`
+    : `${kind} from Databricks · checked ${format(fetchedAt)}`;
 }
 
 // Saves the parent's contact list on the server for its next start. The
