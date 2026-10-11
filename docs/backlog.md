@@ -226,6 +226,16 @@ Owner: David (sw) · Size: S · Depends on: none · Issue: #25
 - [ ] Manual: replay as in #11 and compare with the Claude Design canvas
 Proven by: server, manual check
 
+### 26. app + server: parents save emergency contacts from the app
+Owner: Evelio (sw) · Size: M · Depends on: 21 · Issue: none yet
+- [x] Contacts tab: "Edit contacts" form (names prefilled, numbers typed, up to 5, PIN); hidden during an emergency or a lost-contact alarm
+- [x] `POST /saved-contacts` needs `ECHO_CONTACTS_PIN` (6-12 digits), locks for 60 s after 5 wrong PINs, refuses during an incident, validates names and E.164 numbers, saves to git-ignored `server/contacts.json`
+- [x] Saved contacts replace the `.env` contacts only when the server next starts; a running server never changes its list, and `GET /contacts` stays read-only
+- [ ] Manual: save from a phone, restart the server, see the new names on the Contacts tab; with `ECHO_CALLS=live`, a verified saved number rings
+Proven by: server, app tests, manual check
+
+Design decisions (Eve, 2026-10-11): parents may now add contacts from the app (#26), replacing #21's "no add"; saved lists apply after a server restart so the call floor never changes mid-run.
+
 Design decisions (Eve, 2026-10-10): dark shell with red only at EMERGENCY (#20, #25); Contacts names only, fixed order, no drag or add (#21); History tab shows the heat insight only, run list stays in Later (#23).
 
 Dropped from stage 3 (reviewer): History screen from the status logs. Not in the demo script; the dashboard already draws the heat curve. Back in Later.

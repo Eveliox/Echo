@@ -304,3 +304,11 @@ Decision (Eve, PM): when the box goes offline, or the dashboard loses the server
 - Demo script doc (Claude Docs, "Echo: Devpost & Demo Script"): the ESP-pull beat now names the red dashboard banner and the app's Call 911; the close says Heat insights is a design example unless real heat runs land.
 
 For David: please look at the dashboard and the app's Car tab with the ESP pulled during the next replay or heat run.
+
+## 2026-10-11 (Eve, #26 contacts from the app)
+
+Parents can now replace the contact list from the app's Contacts tab (Edit contacts: names prefilled, numbers typed, up to 5, PIN). Decision (Eve): saved contacts take effect only when the server next starts, so the ladder, Responder and voice agent never change their list mid-run. This replaces #21's "no add".
+- Server: `POST /saved-contacts` is off until `ECHO_CONTACTS_PIN` (6-12 digits) is set in server/.env. A wrong PIN gets 401; 5 in a row lock all attempts for 60 s; refused with 409 during an incident. The list goes to server/contacts.json (git-ignored, holds numbers). At startup the server prints which list it uses ("N saved from the app" or "from server/.env").
+- To undo: delete server/contacts.json and restart; the .env contacts come back.
+- Demo gotcha: on the Twilio trial, a saved number only rings if it's verified in Twilio. Save the demo phones' numbers, or keep using the .env ones.
+- Not done: the manual check in #26 (phone save → restart → new names; a live call to a saved number). No GitHub issue opened yet.

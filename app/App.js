@@ -6,6 +6,7 @@ import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { LaunchCover } from './src/LaunchCover';
 import { HeatInsights } from './src/HeatInsights';
+import { ContactsEditor } from './src/ContactsEditor';
 import { CountdownRing, HeatTrace } from './src/HeatMotion';
 import { config } from './config';
 import { poll, readResource, request } from './src/client';
@@ -91,7 +92,12 @@ function Activity({ actions, history, carConnected }) {
     })}</View>
   </>;
 }
-function Contacts({ resource }) {
+function Contacts({ resource, locked }) {
+  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState('');
+  if (editing && !locked) {
+    return <><Brand /><ContactsEditor names={resource.entries.map(contact => contact.name)} onDone={message => { setSaved(message); setEditing(false); }} /></>;
+  }
   return <>
     <Brand />
     <View style={styles.pageHeading}><AccentRule /><Text style={styles.title}>Your people.</Text><Text style={styles.subtitle}>Who Echo calls when it matters.</Text></View>
@@ -103,6 +109,9 @@ function Contacts({ resource }) {
       <View style={styles.row}><Text style={styles.contactOrder}>CONTACT {String(contact.order).padStart(2, '0')}</Text>{index === 0 && <Text style={styles.firstTag}>FIRST IN ORDER</Text>}</View>
       <View style={styles.contactPerson}><View style={[styles.avatar, index > 0 && { backgroundColor: '#3523150C' }]}><Text style={styles.initial}>{Array.from(contact.name.trim())[0]?.toUpperCase() || '?'}</Text></View><Text style={styles.contactName}>{contact.name}</Text><Icon name="phone" color={palette.muted} size={20} /></View>
     </View>)}</View>
+    {!!saved && <Notice icon="check" title="Contacts saved">{saved}</Notice>}
+    {locked ? <Notice icon="alert" title="Contacts are locked">You can change contacts after the emergency ends.</Notice>
+      : <ActionButton secondary icon="contacts" onPress={() => { setSaved(''); setEditing(true); }}>Edit contacts</ActionButton>}
     <Notice icon="shield" title="A dependable backup">The AI agent can call someone sooner than this order, never later.</Notice>
   </>;
 }
@@ -178,7 +187,7 @@ function EchoApp() {
       <Icon name="alert" color="#FF868D" /><View style={{ flex: 1 }}><Text style={[styles.rowTitle, styles.onRed]}>Emergency at the car</Text><Text style={[styles.small, styles.onRed]}>Go to the car now · View alert</Text></View><Icon name="arrow" color="#FFF5E9" />
     </Pressable>}
     <ScrollView key={tab} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingTop: tab !== 'Car' && vm.emergency ? 20 : insets.top + 18 }]}>
-      {tab === 'Insights' ? <HeatInsights /> : tab === 'Feed' ? <Activity actions={actions} history={data.entries} carConnected={vm.online} /> : tab === 'Contacts' ? <Contacts resource={contacts} /> : <>
+      {tab === 'Insights' ? <HeatInsights /> : tab === 'Feed' ? <Activity actions={actions} history={data.entries} carConnected={vm.online} /> : tab === 'Contacts' ? <Contacts resource={contacts} locked={vm.emergency || vm.lostAlarm} /> : <>
         <Brand />
         <View style={styles.row}>
           <View style={{ gap: 5 }}><Text style={vm.emergency ? [styles.sectionLabel, styles.onRed] : styles.title}>{vm.emergency ? 'FAMILY CAR' : 'Family car'}</Text>{!vm.emergency && <Text style={styles.muted}>{vm.heard}</Text>}</View>

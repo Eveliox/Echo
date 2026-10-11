@@ -63,3 +63,36 @@ export function sensorReadings(status) {
     { label: 'Battery', value: status.battery == null ? '—' : `${status.battery}%` },
   ];
 }
+
+// Contacts a parent types in (Contacts tab). The server checks them again
+// (server/contacts.js); these rules only catch mistakes before sending.
+export const MAX_CONTACTS = 5;
+const CONTACT_NAME = /^[\p{L}\p{N}][\p{L}\p{N} .'-]{0,39}$/u;
+// A typed number as E.164, or null. US numbers may be typed without +1.
+export function normalizePhone(text) {
+  if (typeof text !== 'string') return null;
+  const compact = text.trim().replace(/[\s().-]/g, '');
+  let number = compact;
+  if (/^[0-9]{10}$/.test(compact)) number = `+1${compact}`;
+  else if (/^1[0-9]{10}$/.test(compact)) number = `+${compact}`;
+  return /^\+[1-9][0-9]{7,14}$/.test(number) ? number : null;
+}
+// The first problem with the typed rows, or null when they can be sent.
+export function contactDraftError(rows) {
+  if (!rows.length) return 'Add at least one contact.';
+  if (rows.length > MAX_CONTACTS) return `Echo can call up to ${MAX_CONTACTS} contacts.`;
+  const names = new Set();
+  const numbers = new Set();
+  for (const [i, row] of rows.entries()) {
+    const which = `Contact ${i + 1}`;
+    const name = row.name.trim();
+    const number = normalizePhone(row.number);
+    if (!CONTACT_NAME.test(name)) return `${which}: add a name (letters, spaces, or . ' -).`;
+    if (!number) return `${which}: add a full phone number, like (305) 555-0100.`;
+    if (names.has(name.toLowerCase())) return `${which}: ${name} is already on the list.`;
+    if (numbers.has(number)) return `${which}: that number is already on the list.`;
+    names.add(name.toLowerCase());
+    numbers.add(number);
+  }
+  return null;
+}

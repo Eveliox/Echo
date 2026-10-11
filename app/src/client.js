@@ -28,3 +28,23 @@ export async function readResource(base, path, options) {
   }
   throw new Error('Unknown app resource.');
 }
+
+// Saves the parent's contact list on the server for its next start. The
+// server's own error text is written for parents, so it is shown as is.
+export async function saveContacts(base, pin, contacts, { fetcher = fetch, timeoutMs = 4000 } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let response;
+    try {
+      response = await fetcher(`${serverUrl(base)}/saved-contacts`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin, contacts }), signal: controller.signal,
+      });
+    } catch { throw new Error('Could not reach the server.'); }
+    let body = null;
+    try { body = await response.json(); } catch { /* no JSON body */ }
+    if (!response.ok) throw new Error(typeof body?.error === 'string' ? body.error : 'Could not reach the server.');
+    return body;
+  } finally { clearTimeout(timer); }
+}

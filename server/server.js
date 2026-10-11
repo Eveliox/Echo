@@ -5,6 +5,9 @@
 //   GET  /actions { entries: [{ time, action, to, reason }] }, the ladder's action log, oldest first
 //   GET  /contacts [{ order, name }], fixed ladder order, never phone numbers
 //   POST /on-my-way  fixed app note only; 4 KiB cap, one note per minute globally
+//   POST /saved-contacts { pin, contacts: [{ name, number }] } from the app: needs
+//        ECHO_CONTACTS_PIN, refused during an incident, saved to a git-ignored
+//        file that only takes effect when the server restarts (contacts.js)
 //   GET  /        the read-only dashboard page (dashboard.js, files in server/dashboard/)
 // Each new status also feeds the backup ladder (ladder.js). Calls only dial
 // with ECHO_CALLS=live; Twilio and contacts load from server/.env.
@@ -38,9 +41,15 @@ import { isDashboardPath, serveDashboard } from './dashboard.js';
 import {
   boxTokenStartupMessage, createRejectionLog, readBoxToken, TOKEN_HEADER, tokenMatches,
 } from './auth.js';
+import {
+  contactsFile, contactsPinStartupMessage, loadSavedContacts, readContactsPin, saveContacts, validateContacts,
+} from './contacts.js';
 
 export const PORT = 3000;
 const MAX_BODY_BYTES = 4096;
+// Wrong contact PINs allowed before every attempt is refused for a minute.
+export const MAX_PIN_FAILURES = 5;
+const PIN_LOCKOUT_MS = 60_000;
 
 function send(res, code, body) {
   res.writeHead(code, { 'Content-Type': 'application/json' });
@@ -68,14 +77,19 @@ function requestPath(url) {
 // `actions` should be the action log given to attachLadder.
 // `boxToken` ('' = auth off) gates POST /status; `rejections` counts and logs
 // the posts it turns away (createRejectionLog).
+// `contactsPin` ('' = off) gates POST /saved-contacts; `saveContactList`
+// writes a validated list; `contactsLocked` is true during an incident.
 export function createServer({
   tracker = createTracker(), history = createHistory(), statusLog = null, actions = createActionLog(),
   logError = console.error, boxToken = '', rejections = createRejectionLog({ log: logError }),
-  now = Date.now, contacts = [],
+  now = Date.now, contacts = [], contactsPin = '', saveContactList = null, contactsLocked = () => false,
 } = {}) {
   const publicContacts = contacts.map((contact, index) => ({ order: index + 1, name: contact.name }));
   // Global cooldown needs constant memory and cannot be bypassed with invented client IDs.
   let lastAcknowledged = -Infinity;
+  // Global, like the cooldown above: wrong PINs in a row, and the lockout's end.
+  let pinFailures = 0;
+  let pinLockedUntil = -Infinity;
   const guard = (res, fn) => {
     try {
       fn();
@@ -111,6 +125,55 @@ export function createServer({
         actions.record({ action: 'note', to: 'App', reason: "I'm on my way; alarm and backup calls continue." });
         lastAcknowledged = now();
         return send(res, 200, { ok: true });
+      }));
+      return;
+    }
+    if (path === '/saved-contacts') {
+      if (req.method !== 'POST') return send(res, 405, { error: 'method not allowed' });
+      if (!contactsPin || !saveContactList) {
+        req.resume();
+        return send(res, 403, { error: 'Saving contacts is turned off on the Echo server.' });
+      }
+      if (now() < pinLockedUntil) {
+        req.resume();
+        return send(res, 429, { error: 'Too many wrong PINs. Wait a minute and try again.' });
+      }
+      const chunks = [];
+      let size = 0;
+      req.on('data', (chunk) => {
+        size += chunk.length;
+        if (size <= MAX_BODY_BYTES) chunks.push(chunk);
+      });
+      req.on('error', () => { res.destroy(); });
+      req.on('end', () => guard(res, () => {
+        if (size > MAX_BODY_BYTES) return send(res, 413, { error: 'body too large' });
+        let body;
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch {
+          return send(res, 400, { error: 'body is not JSON' });
+        }
+        if (!tokenMatches(contactsPin, body?.pin)) {
+          pinFailures += 1;
+          if (pinFailures >= MAX_PIN_FAILURES) {
+            pinFailures = 0;
+            pinLockedUntil = now() + PIN_LOCKOUT_MS;
+          }
+          return send(res, 401, { error: 'That PIN is not right.' });
+        }
+        pinFailures = 0;
+        if (contactsLocked()) {
+          return send(res, 409, { error: 'An emergency is in progress. Contacts can change after it ends.' });
+        }
+        const checked = validateContacts(body.contacts);
+        if (checked.error) return send(res, 400, { error: checked.error });
+        saveContactList(checked.contacts);
+        const n = checked.contacts.length;
+        actions.record({
+          action: 'note', to: 'App',
+          reason: `Saved ${n} emergency contact${n === 1 ? '' : 's'} from the app; they take effect when the server restarts.`,
+        });
+        return send(res, 200, { ok: true, saved: n, appliesAfterRestart: true });
       }));
       return;
     }
@@ -207,9 +270,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   loadEnv();
   const port = listenPort();
   const config = readConfig();
+  const savedFile = contactsFile();
+  const saved = loadSavedContacts(savedFile);
+  if (saved) config.contacts = saved;
   const tracker = createTracker();
   const actions = createActionLog();
-  attachLadder(tracker, { config, actions });
+  const ladder = attachLadder(tracker, { config, actions });
   const gemini = readGeminiConfig();
   const elevenLabs = readElevenLabsConfig();
   let voiceLink = null; // { requestCall, inIncident }, set when the Responder is on
@@ -224,7 +290,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   });
   const statusLog = createStatusLog({ dir: logDir() });
   const boxToken = readBoxToken();
-  createServer({ tracker, statusLog, actions, boxToken, contacts: config.contacts }).listen(port, () => {
+  createServer({
+    tracker, statusLog, actions, boxToken, contacts: config.contacts,
+    contactsPin: readContactsPin(), saveContactList: (list) => saveContacts(list, savedFile),
+    contactsLocked: () => ladder.inIncident(),
+  }).listen(port, () => {
     console.log(`Echo server listening on port ${port}`);
     console.log(`Echo server logging statuses to ${statusLog.file}`);
     // Missing settings are loud but don't stop the server: status tracking still matters.
@@ -233,6 +303,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     for (const warning of callsStartupWarnings(config)) console.error(warning);
     const auth = boxTokenStartupMessage(boxToken);
     (auth.level === 'warn' ? console.error : console.log)(auth.text);
+    console.log(saved
+      ? `contacts: ${saved.length} saved from the app (${savedFile}); server/.env contacts are not used`
+      + (config.live ? '. On a Twilio trial, only verified numbers ring' : '')
+      : 'contacts: from server/.env');
+    const pinMessage = contactsPinStartupMessage();
+    (pinMessage.level === 'warn' ? console.error : console.log)(pinMessage.text);
     console.log(responderStartupMessage(gemini));
     for (const { level, text } of voice.lines) (level === 'info' ? console.log : console.error)(text);
     if (!voice.serve) return;
