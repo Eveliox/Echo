@@ -33,7 +33,7 @@ export function heatCurve(entries, status, online, width = 300, height = 140) {
   const values = entries.filter(e => Number.isFinite(e.receivedAt) && Number.isFinite(e.status?.tempF)).slice(-300);
   if (!values.length) return { points: [], forecast: null, dangerY: height / 2 };
   const last = values.at(-1);
-  const forecastMinutes = online && status?.minsToDanger > 0 && last.status.tempF === status.tempF ? status.minsToDanger : null;
+  const forecastMinutes = online && Number.isFinite(status?.minsToDanger) && status.minsToDanger > 0 && last.status.tempF === status.tempF ? status.minsToDanger : null;
   const start = values[0].receivedAt;
   const end = last.receivedAt + (forecastMinutes === null ? 0 : forecastMinutes * 60_000);
   const low = Math.min(DANGER_F - 5, ...values.map(e => e.status.tempF)) - 2;

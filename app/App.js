@@ -6,6 +6,7 @@ import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { LaunchCover } from './src/LaunchCover';
 import { HeatInsights } from './src/HeatInsights';
+import { CountdownRing, HeatTrace } from './src/HeatMotion';
 import { config } from './config';
 import { poll, readResource, request } from './src/client';
 import { activityRows, activityTime } from './src/activity';
@@ -17,22 +18,22 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function Chart({ entries, status, online }) {
   const [width, setWidth] = useState(280);
-  const curve = heatCurve(entries, status, online, width, 112);
+  const curve = heatCurve(entries, status, online, Math.max(1, width - 12), 112);
   const last = curve.points.at(-1);
   const path = curve.points.map((point, i) => `${i ? 'L' : 'M'} ${point.x} ${point.y}`).join(' ');
   return <View style={styles.chartCard}>
     <View style={styles.row}><View style={styles.inline}><Icon name="activity" size={16} color="#FFF5E9" /><Text style={[styles.sectionLabel, styles.onRed]}>CABIN TREND</Text></View><Text style={[styles.small, styles.onRed]}>{DANGER_F}°F danger</Text></View>
     <View onLayout={event => setWidth(event.nativeEvent.layout.width)} style={{ height: 128, marginTop: 14 }} accessibilityLabel="Recorded cabin temperatures. Dashed forecast uses the box's minutes to danger.">
-      <Svg width={width} height={128}>
+      <Svg width={width} height={128} viewBox={`-6 -6 ${width} 128`}>
         <Defs><LinearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor="#FFFFFF" stopOpacity="0.18" /><Stop offset="1" stopColor="#FFFFFF" stopOpacity="0" /></LinearGradient></Defs>
-        <Line x1={0} x2={width} y1={curve.dangerY} y2={curve.dangerY} stroke="#FFFFFF65" strokeDasharray="2 5" />
-        {last && <><Path d={`${path} L ${last.x} 126 L ${curve.points[0].x} 126 Z`} fill="url(#chartFill)" /><Path d={path} fill="none" stroke="#F6F1F2" strokeWidth={2.25} strokeLinejoin="round" /></>}
-        {curve.forecast && <Line x1={curve.forecast.from.x} y1={curve.forecast.from.y} x2={curve.forecast.to.x} y2={curve.forecast.to.y} stroke="#F6F1F2" strokeWidth={2} strokeDasharray="4 5" />}
+        <Line x1={0} x2={width} y1={curve.dangerY} y2={curve.dangerY} stroke="#FFD5A5" strokeWidth={1.25} />
+        {last && <><Path d={`${path} L ${last.x} 126 L ${curve.points[0].x} 126 Z`} fill="url(#chartFill)" /><HeatTrace points={curve.points} path={path} /></>}
+        {curve.forecast && <><Line x1={curve.forecast.from.x} y1={curve.forecast.from.y} x2={curve.forecast.to.x} y2={curve.forecast.to.y} stroke="#F6F1F2" strokeWidth={2} strokeDasharray="4 5" /><Circle cx={curve.forecast.to.x} cy={curve.forecast.to.y} r={4} fill="#FFD5A5" /></>}
         {last && <><Circle cx={last.x} cy={last.y} r={8} fill="#FFFFFF20" /><Circle cx={last.x} cy={last.y} r={3.5} fill="#FFFFFF" /></>}
       </Svg>
       {!last && <Text style={[styles.chartEmpty, styles.onRed]}>Waiting for temperature history</Text>}
     </View>
-    <View style={styles.row}><Text style={[styles.small, styles.onRed]}>Recorded temperatures</Text><Text style={[styles.small, styles.onRed]}>{curve.forecast?.label ?? 'Latest reading'}</Text></View>
+    <View style={styles.row}><Text style={[styles.small, styles.onRed]}>Recorded temperatures</Text><Text style={[styles.small, styles.onRed]}>{curve.forecast ? `Box forecast · ${curve.forecast.label}` : 'Latest reading'}</Text></View>
   </View>;
 }
 // Each resource owns its request lifecycle, so an unavailable contacts/feed
@@ -186,10 +187,12 @@ function EchoApp() {
         <View style={[styles.hero, vm.emergency && styles.emergencyHero]}>
           {!vm.emergency && <Halo color={vm.color} />}
           <StatusLabel label={vm.online ? status.state : 'BOX OFFLINE'} color={vm.emergency ? '#FFFFFF' : vm.online ? status.state === 'WARNING' || status.state === 'OCCUPANT' ? '#805016' : '#365B7E' : palette.muted} live={vm.online && !vm.emergency} />
-          <Text style={[styles.metricLabel, vm.emergency && styles.onRed]}>{vm.emergency ? 'DANGER IN' : vm.online ? 'CABIN TEMPERATURE' : 'LAST KNOWN TEMPERATURE'}</Text>
-          <View style={[styles.numberRow, !vm.online && { opacity: 0.65 }]}>
-            <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.number, vm.emergency && styles.dangerNumber, vm.emergency && styles.onRed]}>{vm.emergency ? vm.minutes : status ? String(status.tempF) : '—'}</Text><Text style={[styles.unit, vm.emergency && styles.onRed]}>{vm.emergency ? 'min' : '°F'}</Text>
-          </View>
+          {vm.emergency ? <CountdownRing minutes={status.minsToDanger} /> : <>
+            <Text style={styles.metricLabel}>{vm.online ? 'CABIN TEMPERATURE' : 'LAST KNOWN TEMPERATURE'}</Text>
+            <View style={[styles.numberRow, !vm.online && { opacity: 0.65 }]}>
+              <Text adjustsFontSizeToFit numberOfLines={1} style={styles.number}>{status ? String(status.tempF) : '—'}</Text><Text style={styles.unit}>°F</Text>
+            </View>
+          </>}
           <View style={styles.inline}><Icon name="seat" size={17} color={vm.emergency ? '#FFFFFF' : palette.muted} /><Text style={[styles.heroCaption, vm.emergency && styles.onRed]}>{vm.emergency ? `${status.tempF}°F${vm.rising ? ' and rising' : ''} · ${status.presence ? 'Seat occupied' : 'Seat empty'}` : `${!vm.online && status ? 'Last known · ' : ''}${seat}`}</Text></View>
           <Text style={[styles.heroDetail, styles.center, vm.emergency && styles.onRed]}>{vm.emergency ? status.minsToDanger === null ? 'No estimate from the box. Go to the car now.' : status.minsToDanger === 0 ? 'At danger level now. Go to the car now.' : 'Go to the car now.'
             : !vm.online ? lastHeard ? `As of ${lastHeard} · may be higher now` : 'Waiting for the box to connect.' : status.state === 'IDLE' ? 'Monitoring the car' : vm.rising ? 'Car is off · temperature is rising' : 'Car is off · monitoring temperature'}</Text>

@@ -28,9 +28,21 @@ test('curve uses reported minutes and danger constant, no forecast for null, zer
   const curve = heatCurve(entries, status, true);
   assert.equal(DANGER_F, 104); assert.equal(curve.forecast.label, '+3.75 min'); assert.equal(curve.forecast.to.y, curve.dangerY);
   assert.equal(curve.points[1].x, 300 / 4.75);
-  for (const minsToDanger of [null, 0]) assert.equal(heatCurve(entries, { ...status, minsToDanger }, true).forecast, null);
+  for (const minsToDanger of [null, 0, -1, Infinity, NaN, '3.75']) assert.equal(heatCurve(entries, { ...status, minsToDanger }, true).forecast, null);
   assert.equal(heatCurve(entries, status, false).forecast, null);
   assert.equal(heatCurve(entries, { ...status, tempF: 99 }, true).forecast, null);
+});
+test('forecast endpoint follows only the box estimate even when recorded temperatures fall', () => {
+  const entries = [{ receivedAt: 0, status: { tempF: 103 } }, { receivedAt: 15000, status: { tempF: 102 } }, { receivedAt: 60000, status }];
+  for (const minutes of [0.25, 3.75, 12]) {
+    const curve = heatCurve(entries, { ...status, minsToDanger: minutes }, true, 288, 112);
+    assert.equal(curve.forecast.label, `+${minutes} min`);
+    assert.equal(curve.forecast.to.x, 288);
+    assert.equal(curve.forecast.to.y, curve.dangerY);
+    assert.equal(curve.points.at(-1).x, 288 / (1 + minutes));
+    assert.equal(curve.points[1].x, curve.points.at(-1).x / 4);
+  }
+  assert.equal(heatCurve([], status, true).forecast, null);
 });
 test('phone actions only return tel URLs, and a missing demo number never falls back to 911', () => {
   assert.equal(emergencyPhone({ demoCalls: false }), 'tel:911');
