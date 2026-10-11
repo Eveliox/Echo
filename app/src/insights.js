@@ -1,7 +1,8 @@
 import { DANGER_F } from './model.js';
 
 // Reads app/assets/insights.json, exported by notebooks/heat_test.py ("Export for the app",
-// where the shape is documented). Predictions from past heat tests only: nothing here
+// where the shape is documented) or by notebooks/florida_weather.py (a Florida hot-car risk
+// forecast, source "databricks forecast", with a `place`). Insights only: nothing here
 // reaches the server, alerts, the backup ladder, or calls.
 export const NOT_REAL_LABEL = '(not from a real heat test)';
 export const NO_INSIGHTS = 'No heat-test predictions yet';
@@ -9,7 +10,8 @@ const MAX_POINTS = 8;
 const MAX_MINUTES = 600;
 const TIMES = ['morning', 'afternoon', 'evening', 'night'];
 const EVALUATIONS = ['held out by run', 'in-sample'];
-const SOURCES = ['databricks notebook', 'design example'];
+const SOURCES = ['databricks notebook', 'databricks forecast', 'design example'];
+const MAX_PLACE = 40;
 
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const inRange = (value, low, high) => typeof value === 'number' && Number.isFinite(value) && value >= low && value <= high;
@@ -23,6 +25,8 @@ export function validInsights(data) {
   if (!isCount(data.runs) || !isCount(data.realRuns) || data.realRuns > data.runs) return false;
   if (data.source === 'databricks notebook' && (data.runs < 1 || typeof data.generatedAt !== 'string' || !EVALUATIONS.includes(data.evaluation))) return false;
   if (data.real && (data.source !== 'databricks notebook' || data.realRuns !== data.runs)) return false;
+  if (data.source === 'databricks forecast' && (typeof data.generatedAt !== 'string' || typeof data.place !== 'string'
+    || data.place.trim() === '' || data.place.length > MAX_PLACE)) return false;
   if (!nullOr(data.mae, 0, MAX_MINUTES) || !(data.evaluation === null || EVALUATIONS.includes(data.evaluation))) return false;
   const { headline, points, inputs } = data;
   if (!isObject(headline) || !isTemp(headline.tempF) || !inRange(headline.minutes, 0, MAX_MINUTES) || !TIMES.includes(headline.timeOfDay)) return false;
@@ -50,6 +54,7 @@ const oneDecimal = value => String(Math.round(value * 10) / 10);
 export function insightsView(data) {
   if (!validInsights(data)) return { ok: false, message: NO_INSIGHTS };
   const example = data.source === 'design example';
+  const forecast = data.source === 'databricks forecast';
   const { timeOfDay } = data.headline;
   const temp = Math.round(data.headline.tempF);
   const minutes = Math.round(data.headline.minutes);
@@ -64,10 +69,33 @@ export function insightsView(data) {
     const point = points[index];
     const last = n === picks.length - 1;
     return { minute: oneDecimal(point.minute), temperature: Math.round(point.tempF), ...arcPoint(point.minute / end),
-      label: n === 0 ? 'Starting cabin' : !last ? 'Heat building' : point.tempF >= DANGER_F ? 'Danger threshold' : 'Last reading' };
+      label: n === 0 ? (forecast ? 'Car parked' : 'Starting cabin') : !last ? 'Heat building' : point.tempF >= DANGER_F ? 'Danger threshold' : 'Last reading' };
   });
   const { warmRateFPerMin: rate } = data.inputs;
   const error = data.mae === null ? '' : ` Typical error ${oneDecimal(data.mae)} min (${data.evaluation ?? 'unevaluated'}).`;
+  const timeWord = timeOfDay[0].toUpperCase() + timeOfDay.slice(1);
+  if (forecast) return {
+    ok: true,
+    example: false,
+    real: false,
+    badge: 'FORECAST',
+    subtitle: `${data.place} · ${timeWord} forecast.`,
+    minutes: String(minutes),
+    minutesLabel: `Forecast time to ${DANGER_F}°F in a parked car`,
+    sentence: `On a ${temp}°F ${timeOfDay} in ${data.place}, a parked car hits danger in ${plural(minutes, 'minute')}.`,
+    label: NOT_REAL_LABEL,
+    note: "Never leave a child in the car, even for a minute. Echo's box watches the seat itself; this forecast never changes an alert.",
+    moments,
+    ticks: points.map(point => arcPoint(point.minute / end).x),
+    timeline: 'after parking',
+    warming: rate === null ? '—' : `${rate > 0 ? '+' : ''}${rate.toFixed(2)}`,
+    inputsCaption: 'Average to danger',
+    timeOfDay: timeWord,
+    startCaption: `${temp}°F outside · ${data.place} forecast`,
+    how: "Databricks joins Google's hourly Florida weather forecast with how fast a parked car heats in full sun, measured on clear days (McLaren, Null & Quinn, Pediatrics 2005).",
+    basis: "The worst hour in Florida's next 24-hour forecast. It assumes full sun, so cloudy hours read worse than they are.",
+    footnote: 'A forecast, not a safe waiting time: there is none. Live alerts and countdowns always come from the box.',
+  };
   return {
     ok: true,
     example,
@@ -84,8 +112,10 @@ export function insightsView(data) {
     timeline: example ? 'into the example' : 'into the logged heat test',
     warming: rate === null ? '—' : `${rate > 0 ? '+' : ''}${rate.toFixed(2)}`,
     inputsCaption: example ? 'Example' : 'At the start',
-    timeOfDay: timeOfDay[0].toUpperCase() + timeOfDay.slice(1),
+    timeOfDay: timeWord,
     startCaption: `${temp}°F starting cabin · ${example ? 'example inputs' : 'heat-test inputs'}`,
+    how: 'Databricks turns patterns in logged temperature, time of day, and warming rate into a simple prediction.',
+    footnote: 'A prediction from past heat tests, not a safe waiting time. Live alerts and countdowns always come from the box.',
     basis: example ? 'No Databricks run yet. These are design example values, not model results.'
       : data.real ? `Fit on ${plural(data.runs, 'real heat test')}.${error}`
         : `Fit on ${plural(data.runs, 'logged run')}, ${data.realRuns} of them real heat tests.${error}`,

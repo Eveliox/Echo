@@ -99,3 +99,48 @@ test('the arc runs along elapsed time between its fixed ends', () => {
   assert.deepEqual(arcPoint(0), { x: 35, y: 142 });
   assert.deepEqual(arcPoint(1), { x: 305, y: 142 });
 });
+
+const forecastExport = {
+  version: 1, source: 'databricks forecast', generatedAt: '2026-10-11T13:00:00Z', real: false, runs: 0, realRuns: 0,
+  mae: null, evaluation: null, place: 'Orlando, FL',
+  headline: { tempF: 91, timeOfDay: 'afternoon', minutes: 7 },
+  points: [{ minute: 0, tempF: 91 }, { minute: 3.4, tempF: 97.5 }, { minute: 6.8, tempF: 104 }],
+  inputs: { warmRateFPerMin: 1.91 },
+};
+const forecastCopy = (patch = {}) => ({ ...structuredClone(forecastExport), ...patch });
+
+test('a Florida forecast export reads as a parked-car forecast for its place, labeled not a real heat test', () => {
+  assert.equal(validInsights(forecastExport), true);
+  const view = insightsView(forecastExport);
+  assert.equal(view.ok, true); assert.equal(view.example, false); assert.equal(view.real, false);
+  assert.equal(view.badge, 'FORECAST');
+  assert.equal(view.subtitle, 'Orlando, FL · Afternoon forecast.');
+  assert.equal(view.minutes, '7');
+  assert.equal(view.minutesLabel, 'Forecast time to 104°F in a parked car');
+  assert.equal(view.sentence, 'On a 91°F afternoon in Orlando, FL, a parked car hits danger in 7 minutes.');
+  assert.equal(view.label, NOT_REAL_LABEL);
+  assert.match(view.note, /never changes an alert/);
+  assert.deepEqual(view.moments.map(m => [m.minute, m.temperature, m.label]), [['0', 91, 'Car parked'], ['3.4', 98, 'Heat building'], ['6.8', 104, 'Danger threshold']]);
+  assert.equal(view.timeline, 'after parking');
+  assert.equal(view.warming, '+1.91');
+  assert.match(view.how, /Pediatrics 2005/);
+  assert.match(view.footnote, /always come from the box/);
+});
+
+test('heat-test exports keep their own explanation and footnote', () => {
+  const view = insightsView(exported);
+  assert.match(view.how, /logged temperature, time of day, and warming rate/);
+  assert.equal(view.footnote, 'A prediction from past heat tests, not a safe waiting time. Live alerts and countdowns always come from the box.');
+});
+
+test('a forecast export needs a place and a time, and can never claim to be a real heat test', () => {
+  const bad = [
+    forecastCopy({ place: undefined }), forecastCopy({ place: '' }), forecastCopy({ place: '   ' }), forecastCopy({ place: 7 }),
+    forecastCopy({ place: 'x'.repeat(41) }), forecastCopy({ generatedAt: null }),
+    forecastCopy({ real: true }), forecastCopy({ real: true, runs: 1, realRuns: 1, evaluation: 'in-sample' }),
+  ];
+  for (const data of bad) {
+    assert.equal(validInsights(data), false, JSON.stringify(data)?.slice(0, 120));
+    assert.deepEqual(insightsView(data), { ok: false, message: NO_INSIGHTS });
+  }
+});

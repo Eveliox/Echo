@@ -71,8 +71,8 @@ export function HeatInsights() {
       <View style={s.card}><Text style={s.cardTitle}>Warming</Text><Text style={s.caption}>{view.inputsCaption}</Text><Text adjustsFontSizeToFit numberOfLines={1} style={s.cardNumber}>{view.warming}<Text style={s.smallUnit}>°F/min</Text></Text><WarmingBars /><Text style={s.caption}>Heat accumulating</Text></View>
     </View>
     <View style={s.context}><View style={s.contextItem}><Icon name="clock" size={17} color={ink} /><Text style={s.contextText}>{view.timeOfDay}</Text></View><Text style={s.caption}>{view.startCaption}</Text></View>
-    <View style={s.future}><Text style={s.futureTitle}>How heat becomes insight.</Text><Text style={s.body}>Databricks turns patterns in logged temperature, time of day, and warming rate into a simple prediction.</Text><Text style={s.body}>{view.basis}</Text></View>
-    <Text style={s.footnote}>A prediction from past heat tests, not a safe waiting time. Live alerts and countdowns always come from the box.</Text>
+    <View style={s.future}><Text style={s.futureTitle}>How heat becomes insight.</Text><Text style={s.body}>{view.how}</Text><Text style={s.body}>{view.basis}</Text></View>
+    <Text style={s.footnote}>{view.footnote}</Text>
   </>;
 }
 
